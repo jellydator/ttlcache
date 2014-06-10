@@ -1,0 +1,19 @@
+language: go
+
+go:
+  - 1.2
+  - tip
+
+git:
+  depth: 1
+
+install:
+  - go get code.google.com/p/go.tools/cmd/cover
+  - go get github.com/golang/lint/golint
+  - go get github.com/tools/godep
+  - export PATH=$HOME/gopath/bin:$PATH
+
+script:
+  - golint .
+  - godep go test -race ./...
+  - godep go test -cover ./...
