@@ -15,7 +15,7 @@ func (item *Item) touch(duration time.Duration) {
 
 func (item *Item) expired() bool {
 	if item.expires == nil {
-		return false
+		return true
 	}
 	return item.expires.Before(time.Now())
 }
