@@ -1,1 +1,1 @@
-## TTLCache - a in-memory LRU cache with expiration
+## TTLCache - an in-memory LRU cache with expiration

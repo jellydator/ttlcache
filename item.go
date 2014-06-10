@@ -2,6 +2,7 @@ package ttlcache
 
 import "time"
 
+// Item represents a record in the cache map
 type Item struct {
 	data    string
 	expires *time.Time
