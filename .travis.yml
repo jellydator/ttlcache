@@ -8,6 +8,7 @@ git:
   depth: 1
 
 install:
+  - go install -race std
   - go get code.google.com/p/go.tools/cmd/cover
   - go get github.com/golang/lint/golint
   - go get github.com/tools/godep
