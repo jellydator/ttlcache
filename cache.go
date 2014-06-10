@@ -6,53 +6,53 @@ import (
 )
 
 type Cache struct {
-	sync.RWMutex
-	TTL   time.Duration
+	mutex sync.RWMutex
+	ttl   time.Duration
 	items map[string]*Item
 }
 
 func (cache *Cache) Set(key string, data string) {
-	cache.Lock()
+	cache.mutex.Lock()
 	item := &Item{data: data}
-	item.Touch(cache.TTL)
+	item.touch(cache.ttl)
 	cache.items[key] = item
-	cache.Unlock()
+	cache.mutex.Unlock()
 }
 
 func (cache *Cache) Get(key string) (data string, found bool) {
-	cache.Lock()
+	cache.mutex.Lock()
 	item, exists := cache.items[key]
-	if !exists || item.Expired() {
+	if !exists || item.expired() {
 		data = ""
 		found = false
 	} else {
-		item.Touch(cache.TTL)
+		item.touch(cache.ttl)
 		data = item.data
 		found = true
 	}
-	cache.Unlock()
+	cache.mutex.Unlock()
 	return
 }
 
 func (cache *Cache) Count() int {
-	cache.RLock()
+	cache.mutex.RLock()
 	count := len(cache.items)
-	cache.RUnlock()
+	cache.mutex.RUnlock()
 	return count
 }
 
-func (cache *Cache) Cleanup() {
-	cache.Lock()
+func (cache *Cache) cleanup() {
+	cache.mutex.Lock()
 	for key, item := range cache.items {
-		if item.Expired() {
+		if item.expired() {
 			delete(cache.items, key)
 		}
 	}
-	cache.Unlock()
+	cache.mutex.Unlock()
 }
 
 func (cache *Cache) startCleanupTimer() {
-	duration := cache.TTL * 2
+	duration := cache.ttl * 2
 	if duration < time.Second {
 		duration = time.Second
 	}
@@ -61,7 +61,7 @@ func (cache *Cache) startCleanupTimer() {
 		for {
 			select {
 			case <-ticker:
-				cache.Cleanup()
+				cache.cleanup()
 			}
 		}
 	})()
@@ -69,7 +69,7 @@ func (cache *Cache) startCleanupTimer() {
 
 func NewCache(duration time.Duration) *Cache {
 	cache := &Cache{
-		TTL:   duration,
+		ttl:   duration,
 		items: map[string]*Item{},
 	}
 	cache.startCleanupTimer()

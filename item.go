@@ -7,12 +7,12 @@ type Item struct {
 	expires *time.Time
 }
 
-func (item *Item) Touch(duration time.Duration) {
+func (item *Item) touch(duration time.Duration) {
 	expiration := time.Now().Add(duration)
 	item.expires = &expiration
 }
 
-func (item *Item) Expired() bool {
+func (item *Item) expired() bool {
 	if item.expires == nil {
 		return false
 	}
