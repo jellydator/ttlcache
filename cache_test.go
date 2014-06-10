@@ -37,15 +37,19 @@ func TestExpiration(t *testing.T) {
 	cache.Set("z", "3")
 	cache.startCleanupTimer()
 
+	count := cache.Count()
+	if count != 3 {
+		t.Errorf("Expected cache to contain 3 items")
+	}
+
 	<-time.After(500 * time.Millisecond)
+	cache.items["y"].touch(time.Second)
 	item, exists := cache.items["x"]
 	if !exists || item.data != "1" || item.expired() {
 		t.Errorf("Expected `x` to not have expired after 200ms")
 	}
 
-	cache.items["y"].touch(time.Second)
 	<-time.After(time.Second)
-
 	_, exists = cache.items["x"]
 	if exists {
 		t.Errorf("Expected `x` to have expired")
@@ -58,9 +62,20 @@ func TestExpiration(t *testing.T) {
 	if !exists {
 		t.Errorf("Expected `y` to not have expired")
 	}
+
+	count = cache.Count()
+	if count != 1 {
+		t.Errorf("Expected cache to contain 1 item")
+	}
+
 	<-time.After(600 * time.Millisecond)
 	_, exists = cache.items["y"]
 	if exists {
 		t.Errorf("Expected `y` to have expired")
+	}
+
+	count = cache.Count()
+	if count != 0 {
+		t.Errorf("Expected cache to be empty")
 	}
 }
