@@ -58,7 +58,7 @@ func (cache *Cache) cleanup() {
 }
 
 func (cache *Cache) startCleanupTimer() {
-	duration := cache.ttl * 2
+	duration := cache.ttl
 	if duration < time.Second {
 		duration = time.Second
 	}
