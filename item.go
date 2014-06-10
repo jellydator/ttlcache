@@ -1,21 +1,32 @@
 package ttlcache
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // Item represents a record in the cache map
 type Item struct {
+	sync.RWMutex
 	data    string
 	expires *time.Time
 }
 
 func (item *Item) touch(duration time.Duration) {
+	item.Lock()
 	expiration := time.Now().Add(duration)
 	item.expires = &expiration
+	item.Unlock()
 }
 
 func (item *Item) expired() bool {
+	var value bool
+	item.RLock()
 	if item.expires == nil {
-		return true
+		value = true
+	} else {
+		value = item.expires.Before(time.Now())
 	}
-	return item.expires.Before(time.Now())
+	item.RUnlock()
+	return value
 }
