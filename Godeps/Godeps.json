@@ -1,5 +1,5 @@
 {
-	"ImportPath": "github.com/netroy/ttlcache",
+	"ImportPath": "github.com/wunderlist/ttlcache",
 	"GoVersion": "go1.2.2",
 	"Deps": []
 }

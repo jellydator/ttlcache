@@ -6,13 +6,13 @@ TTLCache is a minimal wrapper over a string map in golang, entries of which are
 2. Auto-Expiring after a certain time
 3. Auto-Extending expiration on `Get`s
 
-[![Build Status](https://travis-ci.org/netroy/ttlcache.svg)](https://travis-ci.org/netroy/ttlcache)
+[![Build Status](https://travis-ci.org/wunderlist/ttlcache.svg)](https://travis-ci.org/wunderlist/ttlcache)
 
 #### Usage
 ```go
 import (
   "time"
-  "github.com/netroy/ttlcache"
+  "github.com/wunderlist/ttlcache"
 )
 
 func main () {
