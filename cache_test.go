@@ -26,6 +26,26 @@ func TestGet(t *testing.T) {
 	}
 }
 
+func TestEviction(t *testing.T) {
+	expired := false
+	evictionFunc := func(key string, value interface{}) {
+		expired = true
+	}
+	cache := &Cache{
+		ttl:      time.Second,
+		items:    map[string]*Item{},
+		eviction: evictionFunc,
+	}
+	cache.Set("testEviction", "should expire")
+	cache.startCleanupTimer()
+
+	<-time.After(2 * time.Second)
+
+	if !expired {
+		t.Errorf("Expected cache to expire")
+	}
+}
+
 func TestExpiration(t *testing.T) {
 	cache := &Cache{
 		ttl:   time.Second,

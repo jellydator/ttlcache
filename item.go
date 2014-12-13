@@ -8,7 +8,7 @@ import (
 // Item represents a record in the cache map
 type Item struct {
 	sync.RWMutex
-	data    string
+	data    interface{}
 	expires *time.Time
 }
 
