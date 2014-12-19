@@ -13,10 +13,15 @@ TTLCache is a minimal wrapper over a string map in golang, entries of which are
 import (
   "time"
   "github.com/wunderlist/ttlcache"
+  "fmt"
 )
 
 func main () {
-  cache := ttlcache.NewCache(time.Second)
+  evictionFunc := func(key string, value interface{}) {
+		fmt.Println(key, " expired")
+	}
+	
+  cache := ttlcache.NewCache(time.Second, evictionFunc)
   cache.Set("key", "value")
   value, exists := cache.Get("key")
   count := cache.Count()
