@@ -14,7 +14,7 @@ type Cache struct {
 }
 
 // Set is a thread-safe way to add new items to the map
-func (cache *Cache) Set(key string, data string) {
+func (cache *Cache) Set(key string, data interface{}) {
 	cache.mutex.Lock()
 	item := &Item{data: data}
 	item.touch(cache.ttl)
