@@ -53,7 +53,7 @@ func (cache *Cache) cleanup() {
 	for key, item := range cache.items {
 		if item.expired() {
 			if cache.eviction != nil {
-				go cache.eviction(key, cache.items[key])
+				cache.eviction(key, cache.items[key])
 			}
 			delete(cache.items, key)
 		}
@@ -77,12 +77,15 @@ func (cache *Cache) startCleanupTimer() {
 	})()
 }
 
+func (cache *Cache) SetEvictionFunction(evictionFunc func(key string, value interface{})) {
+	cache.eviction = evictionFunc
+}
+
 // NewCache is a helper to create instance of the Cache struct
-func NewCache(duration time.Duration, evictionFunc func(key string, value interface{})) *Cache {
+func NewCache(duration time.Duration) *Cache {
 	cache := &Cache{
-		ttl:      duration,
-		items:    map[string]*Item{},
-		eviction: evictionFunc,
+		ttl:   duration,
+		items: map[string]*Item{},
 	}
 	cache.startCleanupTimer()
 	return cache

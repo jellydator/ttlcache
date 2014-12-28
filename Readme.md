@@ -21,7 +21,8 @@ func main () {
 		fmt.Println(key, " expired")
 	}
 	
-  cache := ttlcache.NewCache(time.Second, evictionFunc)
+  cache := ttlcache.NewCache(time.Second)
+  cache.SetEvictionFunction(evictionFunc)
   cache.Set("key", "value")
   value, exists := cache.Get("key")
   count := cache.Count()

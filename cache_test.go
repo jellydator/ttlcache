@@ -32,10 +32,10 @@ func TestEviction(t *testing.T) {
 		expired = true
 	}
 	cache := &Cache{
-		ttl:      time.Second,
-		items:    map[string]*Item{},
-		eviction: evictionFunc,
+		ttl:   time.Second,
+		items: map[string]*Item{},
 	}
+	cache.SetEvictionFunction(evictionFunc)
 	cache.Set("testEviction", "should expire")
 	cache.startCleanupTimer()
 
