@@ -1,4 +1,4 @@
-/*package ttlcache
+package ttlcache
 
 import (
 	"testing"
@@ -6,8 +6,8 @@ import (
 )
 
 func TestWithIndividualTTL(t *testing.T) {
-	cache := NewCacheWithoutGlobalTTL()
-	cache.SetWithTTL("key", "value", 100)
+	cache := NewCache()
+	cache.SetWithTTL("key", "value", 10000)
 
 	<-time.After(200 * time.Millisecond)
 
@@ -15,7 +15,7 @@ func TestWithIndividualTTL(t *testing.T) {
 		t.Error("Key didn't expire")
 	}
 }
-*/
+
 /*
 func TestGet(t *testing.T) {
 	globalTTLEnable = true

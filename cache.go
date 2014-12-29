@@ -1,6 +1,7 @@
 package ttlcache
 
 import (
+	"fmt"
 	"reflect"
 	"sync"
 	"time"
@@ -18,13 +19,9 @@ type Cache struct {
 	expireChannel  chan *Item
 }
 
-/*
-agrupar todos os items por data de expiracao em um array, qnd ele expirar, percorrer o array e ver quem vai ser expirado
-*/
-
 // NewCache is a helper to create instance of the Cache struct
 func NewCache() *Cache {
-	cache := &Cache{items: map[string]*Item{}}
+	cache := &Cache{items: map[string]*Item{}, expireChannel: make(chan *Item)}
 	go cache.processExpirations()
 	return cache
 }
@@ -57,7 +54,7 @@ func (cache *Cache) Set(key string, data interface{}) {
 func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
-	item := &Item{data: data, ttl: ttl}
+	item := &Item{data: data, ttl: ttl, key: key}
 	item.touch()
 	cache.items[key] = item
 	cache.expireChannel <- item
@@ -79,27 +76,29 @@ func (cache *Cache) processExpirations() {
 	ttlCases[0] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(cache.expireChannel)}
 
 	for {
-		chosen, value, ok := reflect.Select(ttlCases)
-		/*
-			- eu tenho os items no canal, pensar em como disparar essa galera agora, eh simples.... falta pouco
-			- depois tem que fazer os testes eim!!!!
-		*/
-		fmt.Println(chosen, value, ok)
+		chosen, value, _ := reflect.Select(ttlCases)
+		fmt.Println(chosen)
 
-		/*if chosen == 0 {
-			ttlCases = append(ttlCases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(value.(*Item).expire)})
+		if chosen == 0 {
+			valueItem := value.Interface().(*Item)
+			ttlCases = append(ttlCases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(valueItem.expire)})
 		} else {
-			// espirar o item
+			fmt.Println(value.Interface().(<-chan time.Time))
+			//valueItem := value.Interface().(*Item)
+		}
 
-			if !ok {
-				//cache.mutex.Lock()
-				//fmt.Printf("%T\n", ttlCases[chosen], ttlCases[chosen].Chan, value)
-				//close(reflect.ValueOf(ttlCases[chosen].Chan)
-				ttlCases = append(ttlCases[:len(ttlCases)], ttlCases[len(ttlCases)+1:]...)
-				//cache.mutex.Unlock()
+		/*else {
+		  // espirar o item
 
-				// fechar o canal, tirar o ttlCases
-			}
+		  if !ok {
+		    //cache.mutex.Lock()
+		    //fmt.Printf("%T\n", ttlCases[chosen], ttlCases[chosen].Chan, value)
+		    //close(reflect.ValueOf(ttlCases[chosen].Chan)
+		    ttlCases = append(ttlCases[:len(ttlCases)], ttlCases[len(ttlCases)+1:]...)
+		    //cache.mutex.Unlock()
+
+		    // fechar o canal, tirar o ttlCases
+		  }
 		}*/
 	}
 }
