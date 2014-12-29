@@ -14,8 +14,22 @@ type Item struct {
 }
 
 // Reset the item expiration time
-func (item *Item) touch(duration time.Duration) {
+func (item *Item) touch() {
 	item.Lock()
-	item.expireCallback = time.After(duration)
+	item.expire = time.After(item.ttl)
 	item.Unlock()
+}
+
+func initializeEmptyItemsTTL(cache *Cache) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
+
+	for _, item := range cache.items {
+		if item.ttl == 0 {
+			item.Lock()
+			item.ttl = cache.ttl
+			item.expire = time.After(item.ttl)
+			item.Unlock()
+		}
+	}
 }

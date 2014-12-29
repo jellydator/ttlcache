@@ -1,7 +1,6 @@
 package ttlcache
 
 import (
-	"fmt"
 	"reflect"
 	"sync"
 	"time"
@@ -12,22 +11,28 @@ type ExpireCallback func(key string, value interface{})
 
 // Cache is a synchronized map of items that auto-expire once stale
 type Cache struct {
-	mutex           sync.RWMutex
-	ttl             time.Duration
-	itemsWithTTL    map[string]*Item
-	itemsWithoutTTL map[string]*Item
-	expireCallback  ExpireCallback
-	expireChannel   chan (<-chan time.Time)
+	mutex          sync.RWMutex
+	ttl            time.Duration
+	items          map[string]*Item
+	expireCallback ExpireCallback
+	expireChannel  chan (<-chan time.Time)
 }
 
+/*
+agrupar todos os items por data de expiracao em um array, qnd ele expirar, percorrer o array e ver quem vai ser expirado
+*/
+
 // NewCache is a helper to create instance of the Cache struct
-func NewCache(duration time.Duration) *Cache {
-	cache := &Cache{
-		ttl:   duration,
-		items: map[string]*Item{},
-	}
+func NewCache() *Cache {
+	cache := &Cache{items: map[string]*Item{}}
 	go cache.processExpirations()
 	return cache
+}
+
+// Set the default timeout and initialize the previous items with empty timeout with the new
+func (cache *Cache) SetTimeout(ttl time.Duration) {
+	cache.ttl = ttl
+	initializeEmptyItemsTTL(cache)
 }
 
 // Get is a thread-safe way to lookup items
@@ -35,33 +40,17 @@ func NewCache(duration time.Duration) *Cache {
 func (cache *Cache) Get(key string) (data interface{}, found bool) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
-
-	get := func(items map[string]*Item, key string, ttl time.Duration) {
-		item, exists := items[key]
-
-		if exists {
-			item.touch(ttl)
-		}
-
-		return item.data, true
-	}
-
-	item, exists := get(cache.itemsWithTTL, key, ttl)
+	item, exists := cache.items[key]
 	if exists {
-		return item.data, exists
+		item.touch()
 	}
 
-	item, exists = get(cache.itemsWithoutTTL, key, item.ttl)
-	if exists {
-		return item.data, exists
-	}
-
-	return item.data, false
+	return item.data, exists
 }
 
 // Set is a thread-safe way to add new items to the map
 func (cache *Cache) Set(key string, data interface{}) {
-	SetWithTTL(key, data, cache.ttl)
+	cache.SetWithTTL(key, data, cache.ttl)
 }
 
 // Set is a thread-safe way to add new items to the map with individual ttl
@@ -69,45 +58,37 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	item := &Item{data: data, ttl: ttl}
-	item.touch(item.ttl)
-	cache.expireChannel <- item.expire
+	item.touch()
 	cache.items[key] = item
+	cache.expireChannel <- item.expire
 }
 
 // Count returns the number of items in the cache
 func (cache *Cache) Count() int {
 	cache.mutex.RLock()
 	defer cache.mutex.RUnlock()
-	return len(cache.itemsWithTTL) + len(cache.itemsWithoutTTL)
+	return len(cache.items)
 }
 
 func (cache *Cache) SetExpireCallback(callback ExpireCallback) {
 	cache.expireCallback = callback
-	// agora que o callback foi setado, algo deve ser iniciado para que isso faca sentido....
 }
 
 func (cache *Cache) processExpirations() {
 	ttlCases := make([]reflect.SelectCase, 1)
-	ttlCases[0] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(ttlChannel)}
+	ttlCases[0] = reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(cache.expireChannel)}
 
 	for {
 		chosen, value, ok := reflect.Select(ttlCases)
 
-		fmt.Println(chosen, value)
 		if chosen == 0 {
-			if !ok {
-				break
-			}
-
-			cache.mutex.Lock()
-			ttlCases = append(ttlCases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(<-ttlChannel)})
-			cache.mutex.Unlock()
+			ttlCases = append(ttlCases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(value)})
 		} else {
 			// espirar o item
 
 			if !ok {
 				//cache.mutex.Lock()
-				fmt.Printf("%T\n", ttlCases[chosen], ttlCases[chosen].Chan, value)
+				//fmt.Printf("%T\n", ttlCases[chosen], ttlCases[chosen].Chan, value)
 				//close(reflect.ValueOf(ttlCases[chosen].Chan)
 				ttlCases = append(ttlCases[:len(ttlCases)], ttlCases[len(ttlCases)+1:]...)
 				//cache.mutex.Unlock()
@@ -117,7 +98,3 @@ func (cache *Cache) processExpirations() {
 		}
 	}
 }
-
-/*
-http://stackoverflow.com/questions/19992334/how-to-listen-to-n-channels-dynamic-select-statement
-*/

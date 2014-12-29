@@ -5,6 +5,7 @@ TTLCache is a wrapper over a map[string]interface{} in golang, entries of which 
 1. Thread-safe
 2. Individual expiring time or global expiring time, you can choose
 3. Auto-Extending expiration on `Get`s
+4. Fast and with low memory consumption
 
 [![Build Status](https://travis-ci.org/wunderlist/ttlcache.svg)](https://travis-ci.org/wunderlist/ttlcache)
 
@@ -17,13 +18,14 @@ import (
 )
 
 func main () {
-  evictionFunc := func(key string, value interface{}) {
+  expirationCallback := ttlcache.ExpireCallback(key string, value interface{}) {
 		fmt.Printf("This key(%s) has expired\n", key)
 	}
 
+  cache := ttlcache.NewCache()
   // This duration is the default expiration in case of using `Set`
-  cache := ttlcache.NewCache(time.Second)
-  cache.SetEvictionFunction(evictionFunc)
+  cache.SetTimeout(5 * time.Second)
+  cache.SetExpireCallback(expirationCallback)
 
   cache.Set("key", "value")
   cache.SetWithTTL("keyWithTTL", "value", 10 * time.Second)

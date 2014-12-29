@@ -1,4 +1,4 @@
-package ttlcache
+/*package ttlcache
 
 import (
 	"testing"
@@ -15,7 +15,7 @@ func TestWithIndividualTTL(t *testing.T) {
 		t.Error("Key didn't expire")
 	}
 }
-
+*/
 /*
 func TestGet(t *testing.T) {
 	globalTTLEnable = true
