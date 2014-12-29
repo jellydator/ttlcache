@@ -15,7 +15,7 @@ type Cache struct {
 	ttl            time.Duration
 	items          map[string]*Item
 	expireCallback ExpireCallback
-	expireChannel  chan (<-chan time.Time)
+	expireChannel  chan *Item
 }
 
 /*
@@ -60,7 +60,7 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 	item := &Item{data: data, ttl: ttl}
 	item.touch()
 	cache.items[key] = item
-	cache.expireChannel <- item.expire
+	cache.expireChannel <- item
 }
 
 // Count returns the number of items in the cache
@@ -80,9 +80,14 @@ func (cache *Cache) processExpirations() {
 
 	for {
 		chosen, value, ok := reflect.Select(ttlCases)
+		/*
+			- eu tenho os items no canal, pensar em como disparar essa galera agora, eh simples.... falta pouco
+			- depois tem que fazer os testes eim!!!!
+		*/
+		fmt.Println(chosen, value, ok)
 
-		if chosen == 0 {
-			ttlCases = append(ttlCases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(value)})
+		/*if chosen == 0 {
+			ttlCases = append(ttlCases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(value.(*Item).expire)})
 		} else {
 			// espirar o item
 
@@ -95,6 +100,6 @@ func (cache *Cache) processExpirations() {
 
 				// fechar o canal, tirar o ttlCases
 			}
-		}
+		}*/
 	}
 }
