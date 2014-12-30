@@ -1,19 +1,18 @@
 ## TTLCache - an in-memory LRU cache with expiration
 
-TTLCache is a wrapper over a map[string]interface{} in golang, entries of which are
+TTLCache is a simple key/value cache in golang with the following functions:
 
 1. Thread-safe
 2. Individual expiring time or global expiring time, you can choose
 3. Auto-Extending expiration on `Get`s
-4. Fast and with low memory consumption
 
-[![Build Status](https://travis-ci.org/wunderlist/ttlcache.svg)](https://travis-ci.org/wunderlist/ttlcache)
+[![Build Status](https://travis-ci.org/diegobernardes/ttlcache.svg)](https://travis-ci.org/diegobernardes/ttlcache)
 
 #### Usage
 ```go
 import (
   "time"
-  "github.com/wunderlist/ttlcache"
+  "github.com/diegobernardes/ttlcache"
   "fmt"
 )
 
@@ -22,9 +21,10 @@ func main () {
 		fmt.Printf("This key(%s) has expired\n", key)
 	}
 
+  ttl := time.Duration(1 * time.Second)
   cache := ttlcache.NewCache()
-  // This duration is the default expiration in case of using `Set`
-  cache.SetTimeout(5 * time.Second)
+  // GlobalTTL and the period to scan for expired keys
+  cache.SetTimeout(ttl, ttl)
   cache.SetExpireCallback(expirationCallback)
 
   cache.Set("key", "value")
@@ -39,8 +39,8 @@ func main () {
 
 TTLCache was forked from [![wunderlist/ttlcache])](https://github.com/wunderlist/ttlcache) to add extra functions not avaiable in the original scope.
 
-The differences are
+The main differences are:
 
 1. A item can store any kind of object, previously, only strings could be saved
-2. There is a option to add a callback to get cache evictions
+2. There is a option to add a callback to get key expiration
 3. The expiration can be either global or individual per item
