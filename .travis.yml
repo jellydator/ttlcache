@@ -2,8 +2,6 @@ language: go
 
 go:
   - 1.4
-  - release
-  - tip
 
 git:
   depth: 1
