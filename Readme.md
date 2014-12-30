@@ -37,7 +37,7 @@ func main () {
 
 #### Original Project
 
-TTLCache was forked from [wunderlist/ttlcache](https://github.com/wunderlist/ttlcache) to add extra functions not avaiable in the original scope.
+TTLCache was forked from [wunderlist/ttlcache](https://github.com/wunderlist/ttlcache) to add extra functions not avaiable in the original scope
 
 The main differences are:
 
