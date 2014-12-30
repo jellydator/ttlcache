@@ -6,26 +6,25 @@ import (
 )
 
 func TestWithIndividualTTL(t *testing.T) {
+	ttl := time.Duration(1 * time.Second)
 	cache := NewCache()
-	cache.SetWithTTL("key", "value", 10000)
+	cache.SetTimeout(ttl, ttl)
+	cache.SetWithTTL("key", "value", ttl)
 
-	<-time.After(200 * time.Millisecond)
+	<-time.After(2 * time.Second)
 
 	if cache.Count() > 0 {
 		t.Error("Key didn't expire")
 	}
 }
 
-/*
 func TestGet(t *testing.T) {
-	globalTTLEnable = true
-	cache := &Cache{
-		ttl:   time.Second,
-		items: map[string]*Item{},
-	}
+	ttl := time.Duration(1 * time.Second)
+	cache := NewCache()
+	cache.SetTimeout(ttl, ttl)
 
 	data, exists := cache.Get("hello")
-	if exists || data != "" {
+	if exists || data != nil {
 		t.Errorf("Expected empty cache to return no data")
 	}
 
@@ -39,47 +38,37 @@ func TestGet(t *testing.T) {
 	}
 }
 
-func TestEviction(t *testing.T) {
+func TestCallbackFunction(t *testing.T) {
 	expired := false
-	evictionFunc := func(key string, value interface{}) {
+	ttl := time.Duration(1 * time.Second)
+	cache := NewCache()
+	cache.SetTimeout(ttl, ttl)
+	cache.SetExpireCallback(func(key string, value interface{}) {
 		expired = true
-	}
-	globalTTLEnable = true
-	cache := &Cache{
-		ttl:   time.Second,
-		items: map[string]*Item{},
-	}
-	cache.SetEvictionFunction(evictionFunc)
+	})
 	cache.Set("testEviction", "should expire")
-	cache.startCleanupTimer()
-
 	<-time.After(2 * time.Second)
-
 	if !expired {
 		t.Errorf("Expected cache to expire")
 	}
 }
 
 func TestExpiration(t *testing.T) {
-	globalTTLEnable = true
-	cache := &Cache{
-		ttl:   time.Second,
-		items: map[string]*Item{},
-	}
-
+	ttl := time.Duration(1 * time.Second)
+	cache := NewCache()
+	cache.SetTimeout(ttl, ttl)
 	cache.Set("x", "1")
 	cache.Set("y", "z")
 	cache.Set("z", "3")
-	cache.startCleanupTimer()
-
 	count := cache.Count()
+
 	if count != 3 {
 		t.Errorf("Expected cache to contain 3 items")
 	}
 
 	<-time.After(500 * time.Millisecond)
 	cache.mutex.Lock()
-	cache.items["y"].touch(time.Second)
+	cache.items["y"].touch()
 	item, exists := cache.items["x"]
 	cache.mutex.Unlock()
 	if !exists || item.data != "1" || item.expired() {
@@ -120,4 +109,3 @@ func TestExpiration(t *testing.T) {
 		t.Errorf("Expected cache to be empty")
 	}
 }
-*/

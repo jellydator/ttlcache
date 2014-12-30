@@ -8,30 +8,26 @@ import (
 // Item represents a record in the cache map
 type Item struct {
 	sync.RWMutex
-	key    string
-	data   interface{}
-	ttl    time.Duration
-	expire <-chan time.Time
+	data    interface{}
+	ttl     *time.Duration
+	expires *time.Time
 }
 
 // Reset the item expiration time
 func (item *Item) touch() {
 	item.Lock()
-	/* pensar em uma forma melhor de dar o touch com esse cara nao mais aqui....*/
-	item.expire = time.After(item.ttl)
+	expiration := time.Now().Add(*item.ttl)
+	item.expires = &expiration
 	item.Unlock()
 }
 
-func initializeEmptyItemsTTL(cache *Cache) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-
-	for _, item := range cache.items {
-		if item.ttl == 0 {
-			item.Lock()
-			item.ttl = cache.ttl
-			item.expire = time.After(item.ttl)
-			item.Unlock()
-		}
+// Verify if the item is expired
+func (item *Item) expired() bool {
+	item.RLock()
+	defer item.RUnlock()
+	if item.expires == nil {
+		return true
+	} else {
+		return item.expires.Before(time.Now())
 	}
 }
