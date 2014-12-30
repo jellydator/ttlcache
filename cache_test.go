@@ -38,7 +38,6 @@ func TestGet(t *testing.T) {
 	}
 }
 
-/*
 func TestCallbackFunction(t *testing.T) {
 	expired := false
 	ttl := time.Duration(1 * time.Second)
@@ -52,7 +51,7 @@ func TestCallbackFunction(t *testing.T) {
 	if !expired {
 		t.Errorf("Expected cache to expire")
 	}
-}*/
+}
 
 func TestExpiration(t *testing.T) {
 	ttl := time.Duration(1 * time.Second)
