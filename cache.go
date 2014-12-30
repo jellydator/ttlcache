@@ -80,8 +80,8 @@ func (cache *Cache) processExpirations() {
 		fmt.Println(chosen)
 
 		if chosen == 0 {
-			valueItem := value.Interface().(*Item)
-			ttlCases = append(ttlCases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(valueItem.expire)})
+			item := value.Interface().(*Item)
+			ttlCases = append(ttlCases, reflect.SelectCase{Dir: reflect.SelectRecv, Chan: reflect.ValueOf(time.After(item.ttl))})
 		} else {
 			fmt.Println(value.Interface().(<-chan time.Time))
 			//valueItem := value.Interface().(*Item)
