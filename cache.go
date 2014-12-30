@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// This func is used as a callback on item expiration
+// ExpireCallback is used as a callback on item expiration
 type ExpireCallback func(key string, value interface{})
 
 // Cache is a synchronized map of items that auto-expire once stale
@@ -28,7 +28,7 @@ func (cache *Cache) Set(key string, data interface{}) {
 	cache.SetWithTTL(key, data, cache.ttl)
 }
 
-// Set is a thread-safe way to add new items to the map with individual ttl
+// SetWithTTL is a thread-safe way to add new items to the map with individual ttl
 func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
@@ -81,7 +81,7 @@ func (cache *Cache) startCleanupTimer() {
 	}()
 }
 
-// Set the default timeout and initialize the previous items with empty timeout with the new
+// SetTimeout set the default timeout and initialize the previous items with empty timeout with the new
 func (cache *Cache) SetTimeout(ttl, cleanupPeriod time.Duration) error {
 	if cache.expireTick != nil {
 		return errors.New("Timeout already initialized")
@@ -95,6 +95,7 @@ func (cache *Cache) SetTimeout(ttl, cleanupPeriod time.Duration) error {
 	return nil
 }
 
+// SetExpireCallback is used to save the callback that is called on key expire
 func (cache *Cache) SetExpireCallback(callback ExpireCallback) {
 	cache.expireCallback = callback
 }

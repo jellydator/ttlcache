@@ -27,7 +27,6 @@ func (item *Item) expired() bool {
 	defer item.RUnlock()
 	if item.expires == nil {
 		return true
-	} else {
-		return item.expires.Before(time.Now())
 	}
+	return item.expires.Before(time.Now())
 }
