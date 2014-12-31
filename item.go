@@ -11,6 +11,8 @@ type Item struct {
 	data    interface{}
 	ttl     *time.Duration
 	expires *time.Time
+	index   int
+	key     string
 }
 
 // Reset the item expiration time
