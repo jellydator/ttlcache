@@ -9,8 +9,8 @@ import (
 type Item struct {
 	sync.RWMutex
 	data    interface{}
-	ttl     *time.Duration
-	expires *time.Time
+	ttl     time.Duration
+	expires time.Time
 	index   int
 	key     string
 }
@@ -18,17 +18,16 @@ type Item struct {
 // Reset the item expiration time
 func (item *Item) touch() {
 	item.Lock()
-	expiration := time.Now().Add(*item.ttl)
-	item.expires = &expiration
-	item.Unlock()
+	defer item.Unlock()
+	item.expires = time.Now().Add(item.ttl)
 }
 
 // Verify if the item is expired
 func (item *Item) expired() bool {
 	item.RLock()
 	defer item.RUnlock()
-	if item.expires == nil {
-		return true
+	if item.ttl == 0 {
+		return false
 	}
 	return item.expires.Before(time.Now())
 }

@@ -1,31 +1,82 @@
 package ttlcache
 
-type PriorityQueue []*Item
+import (
+	"container/heap"
+	"time"
+)
 
-func (pq PriorityQueue) Len() int { return len(pq) }
+type priorityQueue []*Item
 
-func (pq PriorityQueue) Less(i, j int) bool {
-	return pq[i].expires.Before(*pq[j].expires)
+func (pq priorityQueue) Len() int { return len(pq) }
+
+func (pq priorityQueue) Less(i, j int) bool {
+	return pq[i].expires.Before(pq[j].expires)
 }
 
-func (pq PriorityQueue) Swap(i, j int) {
+func (pq priorityQueue) Swap(i, j int) {
 	pq[i], pq[j] = pq[j], pq[i]
 	pq[i].index = i
 	pq[j].index = j
 }
 
-func (pq *PriorityQueue) Push(x interface{}) {
+func (pq *priorityQueue) Push(x interface{}) {
 	n := len(*pq)
 	item := x.(*Item)
 	item.index = n
 	*pq = append(*pq, item)
 }
 
-func (pq *PriorityQueue) Pop() interface{} {
+func (pq *priorityQueue) Pop() interface{} {
 	old := *pq
 	n := len(old)
 	item := old[n-1]
 	item.index = -1
 	*pq = old[0 : n-1]
 	return item
+}
+
+func (pq *priorityQueue) update(item *Item) {
+	heap.Fix(pq, item.index)
+}
+
+func (pq *priorityQueue) add(item *Item) {
+	heap.Push(pq, item)
+}
+
+func (pq *priorityQueue) remove(item *Item) {
+	heap.Remove(pq, item.index)
+}
+
+func (pq *priorityQueue) initialize() {
+	heap.Init(pq)
+}
+
+func (cache *Cache) NewPriorityQueue() {
+	cache.priorityQueue = make([]*Item, 0)
+	cache.priorityQueueNewItem = make(chan bool)
+	cache.priorityQueue.initialize()
+}
+
+func (cache *Cache) startPriorityQueueProcessing() {
+	expireFunc := func(item *Item, cache *Cache) {
+		// tirar da fila e reiniciar a parada do heap
+		// tirar do map tb
+	}
+
+	go func(cache *Cache) {
+		var sleepTime time.Duration
+		for {
+			if len(cache.priorityQueue) > 0 {
+				sleepTime = cache.priorityQueue[0].expires.Sub(time.Now())
+			} else {
+				sleepTime = time.Duration(1 * time.Hour)
+			}
+			select {
+			case <-time.After(sleepTime):
+				expireFunc(cache.priorityQueue[0], cache)
+			case <-cache.priorityQueueNewItem:
+				continue
+			}
+		}
+	}(cache)
 }
