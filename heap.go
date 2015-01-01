@@ -59,8 +59,9 @@ func (cache *Cache) NewPriorityQueue() {
 
 func (cache *Cache) startPriorityQueueProcessing() {
 	expireFunc := func(item *Item, cache *Cache) {
-		// tirar da fila e reiniciar a parada do heap
-		// tirar do map tb
+		cache.priorityQueue.remove(item)
+		delete(cache.items, item.key)
+
 	}
 
 	go func(cache *Cache) {
