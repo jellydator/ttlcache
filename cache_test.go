@@ -6,10 +6,8 @@ import (
 )
 
 func TestWithIndividualTTL(t *testing.T) {
-	ttl := time.Duration(1 * time.Second)
 	cache := NewCache()
-	cache.SetTimeout(ttl, ttl)
-	cache.SetWithTTL("key", "value", ttl)
+	cache.SetWithTTL("key", "value", time.Duration(1*time.Second))
 
 	<-time.After(2 * time.Second)
 
@@ -19,10 +17,7 @@ func TestWithIndividualTTL(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	ttl := time.Duration(1 * time.Second)
 	cache := NewCache()
-	cache.SetTimeout(ttl, ttl)
-
 	data, exists := cache.Get("hello")
 	if exists || data != nil {
 		t.Errorf("Expected empty cache to return no data")
@@ -40,9 +35,7 @@ func TestGet(t *testing.T) {
 
 func TestCallbackFunction(t *testing.T) {
 	expired := false
-	ttl := time.Duration(1 * time.Second)
 	cache := NewCache()
-	cache.SetTimeout(ttl, ttl)
 	cache.SetExpireCallback(func(key string, value interface{}) {
 		expired = true
 	})
@@ -56,7 +49,6 @@ func TestCallbackFunction(t *testing.T) {
 func TestExpiration(t *testing.T) {
 	ttl := time.Duration(1 * time.Second)
 	cache := NewCache()
-	cache.SetTimeout(ttl, ttl)
 	cache.SetWithTTL("x", "1", ttl)
 
 	count := cache.Count()

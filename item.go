@@ -17,9 +17,11 @@ type Item struct {
 
 // Reset the item expiration time
 func (item *Item) touch() {
-	item.Lock()
-	defer item.Unlock()
-	item.expires = time.Now().Add(item.ttl)
+	if item.ttl > 0 {
+		item.Lock()
+		defer item.Unlock()
+		item.expires = time.Now().Add(item.ttl)
+	}
 }
 
 // Verify if the item is expired

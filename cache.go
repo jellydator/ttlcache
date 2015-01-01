@@ -48,16 +48,18 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 		item.ttl = ttl
 	} else {
 		item = &Item{data: data, ttl: ttl, key: key}
+		item.touch()
 	}
 	cache.items[key] = item
 
 	if item.ttl > 0 {
-		item.touch()
 		if exists {
 			cache.priorityQueue.update(item)
 		} else {
 			cache.priorityQueue.add(item)
 		}
+
+		cache.priorityQueueNewItem <- true
 	}
 }
 
@@ -65,7 +67,10 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 // Every lookup, also touches the item, hence extending it's life
 func (cache *Cache) Get(key string) (interface{}, bool) {
 	item, exists := cache.getItem(key)
-	return item.data, exists
+	if exists {
+		return item.data, true
+	}
+	return nil, false
 }
 
 func (cache *Cache) getItem(key string) (*Item, bool) {

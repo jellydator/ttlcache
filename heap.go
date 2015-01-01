@@ -35,6 +35,12 @@ func (pq *priorityQueue) Pop() interface{} {
 	return item
 }
 
+func (cache *Cache) NewPriorityQueue() {
+	cache.priorityQueue = make([]*Item, 0)
+	cache.priorityQueueNewItem = make(chan bool)
+	heap.Init(&cache.priorityQueue)
+}
+
 func (pq *priorityQueue) update(item *Item) {
 	heap.Fix(pq, item.index)
 }
@@ -47,21 +53,10 @@ func (pq *priorityQueue) remove(item *Item) {
 	heap.Remove(pq, item.index)
 }
 
-func (pq *priorityQueue) initialize() {
-	heap.Init(pq)
-}
-
-func (cache *Cache) NewPriorityQueue() {
-	cache.priorityQueue = make([]*Item, 0)
-	cache.priorityQueueNewItem = make(chan bool)
-	cache.priorityQueue.initialize()
-}
-
 func (cache *Cache) startPriorityQueueProcessing() {
 	expireFunc := func(item *Item, cache *Cache) {
 		cache.priorityQueue.remove(item)
 		delete(cache.items, item.key)
-
 	}
 
 	go func(cache *Cache) {
