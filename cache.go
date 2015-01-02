@@ -59,7 +59,7 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 			cache.priorityQueue.add(item)
 		}
 
-		cache.priorityQueueNewItem <- true
+		cache.notifyPriorityQueueNewItem(item)
 	}
 }
 
@@ -82,6 +82,9 @@ func (cache *Cache) getItem(key string) (*Item, bool) {
 	}
 	item.touch()
 	cache.priorityQueue.update(item)
+	if item.ttl > 0 {
+		cache.notifyPriorityQueueNewItem(item)
+	}
 	return item, exists
 }
 

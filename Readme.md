@@ -18,12 +18,11 @@ import (
 )
 
 func main () {
-  expirationCallback := ttlcache.ExpireCallback(key string, value interface{}) {
+  expirationCallback := func(key string, value interface{}) {
 		fmt.Printf("This key(%s) has expired\n", key)
 	}
 
   cache := ttlcache.NewCache()
-  cache.SetDefaultTTL(time.Duration(1 * time.Second))
   cache.SetExpireCallback(expirationCallback)
 
   cache.Set("key", "value")
@@ -43,3 +42,4 @@ The main differences are:
 1. A item can store any kind of object, previously, only strings could be saved
 2. There is a option to add a callback to get key expiration
 3. The expiration can be either global or individual per item
+4. Can exist items without expiration time

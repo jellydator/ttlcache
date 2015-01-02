@@ -57,6 +57,10 @@ func (cache *Cache) startPriorityQueueProcessing() {
 	expireFunc := func(item *Item, cache *Cache) {
 		cache.priorityQueue.remove(item)
 		delete(cache.items, item.key)
+
+		if cache.expireCallback != nil {
+			cache.expireCallback(item.key, item.data)
+		}
 	}
 
 	go func(cache *Cache) {
@@ -75,4 +79,12 @@ func (cache *Cache) startPriorityQueueProcessing() {
 			}
 		}
 	}(cache)
+}
+
+func (cache *Cache) notifyPriorityQueueNewItem(item *Item) {
+	t1 := time.Now().Add(cache.priorityQueue[0].ttl)
+	t2 := time.Now().Add(item.ttl)
+	if t1.After(t2) {
+		cache.priorityQueueNewItem <- true
+	}
 }

@@ -39,7 +39,7 @@ func TestCallbackFunction(t *testing.T) {
 	cache.SetExpireCallback(func(key string, value interface{}) {
 		expired = true
 	})
-	cache.Set("testEviction", "should expire")
+	cache.SetWithTTL("testEviction", "should expire", time.Duration(1*time.Second))
 	<-time.After(2 * time.Second)
 	if !expired {
 		t.Errorf("Expected cache to expire")
