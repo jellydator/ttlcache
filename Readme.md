@@ -7,7 +7,7 @@ TTLCache is a simple key/value cache in golang with the following functions:
 3. Auto-Extending expiration on `Get`s
 4. Fast and memory efficient
 
-[![Build Status](https://travis-ci.org/diegobernardes/ttlcache.svg)](https://travis-ci.org/diegobernardes/ttlcache)
+[![Build Status](https://travis-ci.org/diegobernardes/ttlcache.svg?branch=master)](https://travis-ci.org/diegobernardes/ttlcache)
 
 #### Usage
 ```go
