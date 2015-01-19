@@ -35,11 +35,11 @@ func main () {
 
 #### Original Project
 
-TTLCache was forked from [wunderlist/ttlcache](https://github.com/wunderlist/ttlcache) to add extra functions not avaiable in the original scope
-
+TTLCache was forked from [wunderlist/ttlcache](https://github.com/wunderlist/ttlcache) to add extra functions not avaiable in the original scope.
 The main differences are:
 
 1. A item can store any kind of object, previously, only strings could be saved
 2. There is a option to add a callback to get key expiration
 3. The expiration can be either global or individual per item
 4. Can exist items without expiration time
+5. Expirations and callbacks are realtime. Don't have a pooling time anymore, now it's done with a heap.
