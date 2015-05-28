@@ -3,73 +3,86 @@ package ttlcache
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
-func TestWithIndividualTTL(t *testing.T) {
+func TestCacheGlobalExpiration(t *testing.T) {
 	cache := NewCache()
-	cache.SetWithTTL("key", "value", time.Duration(1*time.Second))
-
-	<-time.After(2 * time.Second)
-
-	if cache.Count() > 0 {
-		t.Error("Key didn't expire")
-	}
+	cache.SetTTL(time.Duration(100 * time.Millisecond))
+	cache.Set("key_1", "value")
+	cache.Set("key_2", "value")
+	<-time.After(200 * time.Millisecond)
+	assert.Equal(t, cache.Count(), 0, "Cache should be empty")
+	assert.Equal(t, cache.priorityQueue.Len(), 0, "PriorityQueue should be empty")
 }
 
-func TestGet(t *testing.T) {
+func TestCacheMixedExpirations(t *testing.T) {
+	cache := NewCache()
+	cache.Set("key_1", "value")
+	cache.SetTTL(time.Duration(100 * time.Millisecond))
+	cache.Set("key_2", "value")
+	<-time.After(200 * time.Millisecond)
+	assert.Equal(t, cache.Count(), 1, "Cache should have only 1 item")
+}
+
+func TestCacheIndividualExpiration(t *testing.T) {
+	cache := NewCache()
+	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
+	cache.SetWithTTL("key2", "value", time.Duration(100*time.Millisecond))
+	<-time.After(200 * time.Millisecond)
+	assert.Equal(t, cache.Count(), 0, "Key didn't expire")
+
+	cache.SetWithTTL("key3", "value", time.Duration(100*time.Millisecond))
+	<-time.After(200 * time.Millisecond)
+	assert.Equal(t, cache.Count(), 0, "Key didn't expire")
+}
+
+func TestCacheGet(t *testing.T) {
 	cache := NewCache()
 	data, exists := cache.Get("hello")
-	if exists || data != nil {
-		t.Errorf("Expected empty cache to return no data")
-	}
+	assert.Equal(t, exists, false, "Expected empty cache to return no data")
+	assert.Nil(t, data, "Expected data to be empty")
 
 	cache.Set("hello", "world")
 	data, exists = cache.Get("hello")
-	if !exists {
-		t.Errorf("Expected cache to return data for `hello`")
-	}
-	if data != "world" {
-		t.Errorf("Expected cache to return `world` for `hello`")
-	}
+	assert.NotNil(t, data, "Expected data to be not nil")
+	assert.Equal(t, exists, true, "Expected data to exist")
+	assert.Equal(t, (data.(string)), "world", "Expected data content to be 'world'")
 }
 
-func TestCallbackFunction(t *testing.T) {
-	expired := false
+func TestCacheCallbackFunction(t *testing.T) {
+	expiredCount := 0
 	cache := NewCache()
-	cache.SetExpireCallback(func(key string, value interface{}) {
-		expired = true
+	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		expiredCount = expiredCount + 1
 	})
-	cache.SetWithTTL("testEviction", "should expire", time.Duration(1*time.Second))
-	<-time.After(2 * time.Second)
-	if !expired {
-		t.Errorf("Expected cache to expire")
-	}
+	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
+	cache.Set("key_2", "value")
+	<-time.After(110 * time.Millisecond)
+	assert.Equal(t, expiredCount, 2, "Expected 2 items to be expired")
 }
 
-func TestExpiration(t *testing.T) {
-	ttl := time.Duration(1 * time.Second)
+func TestCacheRemove(t *testing.T) {
 	cache := NewCache()
-	cache.SetWithTTL("x", "1", ttl)
+	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
+	cache.Set("key_2", "value")
+	<-time.After(70 * time.Millisecond)
+	removeKey := cache.Remove("key")
+	removeKey2 := cache.Remove("key_2")
+	assert.Equal(t, removeKey, true, "Expected 'key' to be removed from cache")
+	assert.Equal(t, removeKey2, false, "Expected 'key_2' to already be expired from cache")
+}
 
-	count := cache.Count()
-	if count != 1 {
-		t.Errorf("Expected cache to contain 1 item")
-	}
-
-	<-time.After(2 * time.Second)
-
-	count = cache.Count()
-	if count != 0 {
-		t.Errorf("Expected cache to by empty")
-	}
-
-	cache.SetWithTTL("x", "1", ttl)
-	<-time.After(500 * time.Millisecond)
-	cache.Get("x")
-	<-time.After(500 * time.Millisecond)
-
-	count = cache.Count()
-	if count != 1 {
-		t.Errorf("Expected cache to contain 1 item")
-	}
+func TestCacheSetWithTTLExistItem(t *testing.T) {
+	cache := NewCache()
+	cache.SetTTL(time.Duration(100 * time.Millisecond))
+	cache.SetWithTTL("key", "value", time.Duration(50*time.Millisecond))
+	<-time.After(30 * time.Millisecond)
+	cache.SetWithTTL("key", "value2", time.Duration(50*time.Millisecond))
+	data, exists := cache.Get("key")
+	assert.Equal(t, exists, true, "Expected 'key' to exist")
+	assert.Equal(t, data.(string), "value2", "Expected 'data' to have value 'value2'")
 }
