@@ -37,10 +37,6 @@ func main () {
 }
 ```
 
-## Requirement
-
-Tested in ´go1.4.2´ and the project is with 100% test coverage
-
 ## TODO
 
 - Comment the code
