@@ -7,6 +7,35 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestCacheIndividualExpirationBiggerThanGlobal(t *testing.T) {
+	cache := NewCache()
+	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
+	<-time.After(150 * time.Millisecond)
+	data, exists := cache.Get("key")
+	assert.Equal(t, exists, false, "Expected item to not exist")
+	assert.Nil(t, data, "Expected item to be nil")
+}
+
+func TestCacheGlobalExpirationByGlobal(t *testing.T) {
+	cache := NewCache()
+	cache.Set("key", "value")
+	<-time.After(50 * time.Millisecond)
+	data, exists := cache.Get("key")
+	assert.Equal(t, exists, true, "Expected item to exist in cache")
+	assert.Equal(t, data.(string), "value", "Expected item to have 'value' in value")
+
+	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	data, exists = cache.Get("key")
+	assert.Equal(t, exists, true, "Expected item to exist in cache")
+	assert.Equal(t, data.(string), "value", "Expected item to have 'value' in value")
+
+	<-time.After(100 * time.Millisecond)
+	data, exists = cache.Get("key")
+	assert.Equal(t, exists, false, "Expected item to not exist")
+	assert.Nil(t, data, "Expected item to be nil")
+}
+
 func TestCacheGlobalExpiration(t *testing.T) {
 	cache := NewCache()
 	cache.SetTTL(time.Duration(100 * time.Millisecond))
@@ -30,12 +59,16 @@ func TestCacheIndividualExpiration(t *testing.T) {
 	cache := NewCache()
 	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
 	cache.SetWithTTL("key2", "value", time.Duration(100*time.Millisecond))
-	<-time.After(200 * time.Millisecond)
-	assert.Equal(t, cache.Count(), 0, "Key didn't expire")
-
 	cache.SetWithTTL("key3", "value", time.Duration(100*time.Millisecond))
-	<-time.After(200 * time.Millisecond)
-	assert.Equal(t, cache.Count(), 0, "Key didn't expire")
+	<-time.After(50 * time.Millisecond)
+	assert.Equal(t, cache.Count(), 3, "Should have 3 elements in cache")
+	<-time.After(160 * time.Millisecond)
+	assert.Equal(t, cache.Count(), 0, "Cache should be empty")
+
+	cache.SetWithTTL("key4", "value", time.Duration(50*time.Millisecond))
+	<-time.After(100 * time.Millisecond)
+	<-time.After(100 * time.Millisecond)
+	assert.Equal(t, cache.Count(), 0, "Cache should be empty")
 }
 
 func TestCacheGet(t *testing.T) {
