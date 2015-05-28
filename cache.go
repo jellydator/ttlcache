@@ -29,6 +29,10 @@ func (cache *Cache) getItem(key string) (*item, bool) {
 	}
 
 	if item.ttl >= 0 && (item.ttl > 0 || cache.ttl > 0) {
+		if cache.ttl > 0 && item.ttl == 0 {
+			item.ttl = cache.ttl
+		}
+
 		item.touch()
 		cache.priorityQueue.update(item)
 		cache.expirationNotificationTrigger(item)
@@ -43,34 +47,35 @@ func (cache *Cache) startExpirationProcessing() {
 		var sleepTime time.Duration
 		cache.mutex.Lock()
 		if cache.priorityQueue.Len() > 0 {
-			sleepTime = cache.priorityQueue.items[0].expireAt.Sub(time.Now())
+			if cache.ttl > 0 && time.Now().Add(cache.ttl).Before(cache.priorityQueue.items[0].expireAt) {
+				sleepTime = cache.ttl
+			} else {
+				sleepTime = cache.priorityQueue.items[0].expireAt.Sub(time.Now())
+			}
 		} else if cache.ttl > 0 {
 			sleepTime = cache.ttl
 		} else {
 			sleepTime = time.Duration(1 * time.Hour)
 		}
 
-		t := time.Now().Add(sleepTime)
-		if t.After(cache.expirationTime) {
-			cache.expirationTime = t
-		}
+		cache.expirationTime = time.Now().Add(sleepTime)
 		cache.mutex.Unlock()
 
 		select {
-		case <-time.After(time.Now().Sub(cache.expirationTime)):
+		case <-time.After(cache.expirationTime.Sub(time.Now())):
 			if cache.priorityQueue.Len() == 0 {
 				continue
 			}
 
 			cache.mutex.Lock()
-			item := cache.priorityQueue.pop()
+			item := cache.priorityQueue.items[0]
 
 			if !item.expired() {
-				cache.priorityQueue.push(item)
 				cache.mutex.Unlock()
 				continue
 			}
 
+			cache.priorityQueue.remove(item)
 			delete(cache.items, item.key)
 			cache.mutex.Unlock()
 
