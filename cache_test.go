@@ -119,3 +119,25 @@ func TestCacheSetWithTTLExistItem(t *testing.T) {
 	assert.Equal(t, exists, true, "Expected 'key' to exist")
 	assert.Equal(t, data.(string), "value2", "Expected 'data' to have value 'value2'")
 }
+
+func BenchmarkCacheSetWithoutTTL(b *testing.B) {
+	cache := NewCache()
+	for n := 0; n < b.N; n++ {
+		cache.Set(string(n), "value")
+	}
+}
+
+func BenchmarkCacheSetWithGlobalTTL(b *testing.B) {
+	cache := NewCache()
+	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	for n := 0; n < b.N; n++ {
+		cache.Set(string(n), "value")
+	}
+}
+
+func BenchmarkCacheSetWithTTL(b *testing.B) {
+	cache := NewCache()
+	for n := 0; n < b.N; n++ {
+		cache.SetWithTTL(string(n), "value", time.Duration(50*time.Millisecond))
+	}
+}
