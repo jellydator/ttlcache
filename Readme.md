@@ -44,10 +44,6 @@ func main () {
 - Add benchmarks
 - Improve map performance
 
-## License
-
-TTLCache is released under the [MIT License](http://www.opensource.org/licenses/MIT).
-
 #### Original Project
 
 TTLCache was forked from [wunderlist/ttlcache](https://github.com/wunderlist/ttlcache) to add extra functions not avaiable in the original scope.
