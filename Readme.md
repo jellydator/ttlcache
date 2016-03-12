@@ -20,6 +20,18 @@ import (
 )
 
 func main () {
+  newItemCallback := func(key string, value interface{}) {
+		fmt.Printf("New key(%s) added\n", key)
+  }
+  checkExpirationCallback := func(key string, value interface{}) bool {
+		if key == "key1" {
+		    // if the key equals "key1", the value
+		    // will not be allowed to expire
+		    return false
+		}
+		// all other values are allowed to expire
+		return true
+	}
   expirationCallback := func(key string, value interface{}) {
 		fmt.Printf("This key(%s) has expired\n", key)
 	}
@@ -50,7 +62,7 @@ TTLCache was forked from [wunderlist/ttlcache](https://github.com/wunderlist/ttl
 The main differences are:
 
 1. A item can store any kind of object, previously, only strings could be saved
-2. There is a option to add a callback to get key expiration
+2. Optionally, you can add callbacks to: check if a value should expire, be notified if a value expires, and be notified when new values are added to the cache
 3. The expiration can be either global or per item
 4. Can exist items without expiration time
 5. Expirations and callbacks are realtime. Don't have a pooling time to check anymore, now it's done with a heap.

@@ -5,7 +5,10 @@ import (
 	"time"
 )
 
-// ExpireCallback is used as a callback on item expiration
+// CheckExpireCallback is used as a callback for an external check on item expiration
+type checkExpireCallback func(key string, value interface{}) bool
+
+// ExpireCallback is used as a callback on item expiration or when notifying of an item new to the cache
 type expireCallback func(key string, value interface{})
 
 // Cache is a synchronized map of items that can auto-expire once stale
@@ -14,6 +17,8 @@ type Cache struct {
 	ttl                    time.Duration
 	items                  map[string]*item
 	expireCallback         expireCallback
+	checkExpireCallback    checkExpireCallback
+	newItemCallback        expireCallback
 	priorityQueue          *priorityQueue
 	expirationNotification chan bool
 	expirationTime         time.Time
@@ -75,6 +80,15 @@ func (cache *Cache) startExpirationProcessing() {
 				continue
 			}
 
+			if cache.checkExpireCallback != nil {
+				if !cache.checkExpireCallback(item.key, item.data) {
+					item.touch()
+					cache.priorityQueue.update(item)
+					cache.mutex.Unlock()
+					continue
+				}
+			}
+
 			cache.priorityQueue.remove(item)
 			delete(cache.items, item.key)
 			cache.mutex.Unlock()
@@ -124,11 +138,12 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 		} else {
 			cache.priorityQueue.push(item)
 		}
-
 		cache.expirationNotificationTrigger(item)
 	}
-
 	cache.mutex.Unlock()
+	if !exists && cache.newItemCallback != nil {
+		cache.newItemCallback(key, data)
+	}
 }
 
 // Get is a thread-safe way to lookup items
@@ -170,8 +185,20 @@ func (cache *Cache) SetTTL(ttl time.Duration) {
 	cache.mutex.Unlock()
 }
 
+// SetExpirationCallback sets a callback that will be called when an item expires
 func (cache *Cache) SetExpirationCallback(callback expireCallback) {
 	cache.expireCallback = callback
+}
+
+// SetCheckExpirationCallback sets a callback that will be called when an item is about to expire
+// in order to allow external code to decide whether the item expires or remains for another TTL cycle
+func (cache *Cache) SetCheckExpirationCallback(callback checkExpireCallback) {
+	cache.checkExpireCallback = callback
+}
+
+// SetNewItemCallback sets a callback that will be called when a new item is added to the cache
+func (cache *Cache) SetNewItemCallback(callback expireCallback) {
+	cache.newItemCallback = callback
 }
 
 // NewCache is a helper to create instance of the Cache struct

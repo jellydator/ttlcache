@@ -84,7 +84,7 @@ func TestCacheGet(t *testing.T) {
 	assert.Equal(t, (data.(string)), "world", "Expected data content to be 'world'")
 }
 
-func TestCacheCallbackFunction(t *testing.T) {
+func TestCacheExpirationCallbackFunction(t *testing.T) {
 	expiredCount := 0
 	cache := NewCache()
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
@@ -95,6 +95,39 @@ func TestCacheCallbackFunction(t *testing.T) {
 	cache.Set("key_2", "value")
 	<-time.After(110 * time.Millisecond)
 	assert.Equal(t, expiredCount, 2, "Expected 2 items to be expired")
+}
+
+func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
+	expiredCount := 0
+	cache := NewCache()
+	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	cache.SetCheckExpirationCallback(func(key string, value interface{}) bool {
+		if key == "key2" {
+			return true
+		}
+		return false
+	})
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		expiredCount = expiredCount + 1
+	})
+	cache.Set("key", "value")
+	cache.Set("key2", "value")
+	<-time.After(110 * time.Millisecond)
+	assert.Equal(t, expiredCount, 1, "Expected 1 item to be expired")
+}
+
+func TestCacheNewItemCallbackFunction(t *testing.T) {
+	newItemCount := 0
+	cache := NewCache()
+	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	cache.SetNewItemCallback(func(key string, value interface{}) {
+		newItemCount = newItemCount + 1
+	})
+	cache.Set("key", "value")
+	cache.Set("key2", "value")
+	cache.Set("key", "value")
+	<-time.After(110 * time.Millisecond)
+	assert.Equal(t, newItemCount, 2, "Expected only 2 new items")
 }
 
 func TestCacheRemove(t *testing.T) {
