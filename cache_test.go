@@ -3,8 +3,7 @@ package ttlcache
 import (
 	"testing"
 	"time"
-
-	"fmt"
+	
 	"github.com/stretchr/testify/assert"
 	"sync"
 )
@@ -15,7 +14,7 @@ func TestRemovalAndCountDoesNotPanic(t *testing.T) {
 	cache.Set("key", "value")
 	cache.Remove("key")
 	count := cache.Count()
-	fmt.Printf("cache has %d keys\n", count)
+	t.Logf("cache has %d keys\n", count)
 }
 
 // test github issue #3
@@ -31,21 +30,21 @@ func TestRemovalWithTtlDoesNotPanic(t *testing.T) {
 
 	value, exists := cache.Get("keyWithTTL")
 	if exists {
-		fmt.Printf("got %s for keyWithTTL\n", value)
+		t.Logf("got %s for keyWithTTL\n", value)
 	}
 	count := cache.Count()
-	fmt.Printf("cache has %d keys\n", count)
+	t.Logf("cache has %d keys\n", count)
 
 	<-time.After(3 * time.Second)
 
 	value, exists = cache.Get("keyWithTTL")
 	if exists {
-		fmt.Printf("got %s for keyWithTTL\n", value)
+		t.Logf("got %s for keyWithTTL\n", value)
 	} else {
-		fmt.Println("keyWithTTL has gone")
+		t.Logf("keyWithTTL has gone")
 	}
 	count = cache.Count()
-	fmt.Printf("cache has %d keys\n", count)
+	t.Logf("cache has %d keys\n", count)
 }
 
 func TestCacheIndividualExpirationBiggerThanGlobal(t *testing.T) {
