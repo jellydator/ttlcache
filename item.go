@@ -1,7 +1,6 @@
 package ttlcache
 
 import (
-	"sync"
 	"time"
 )
 
@@ -16,9 +15,8 @@ func newItem(key string, data interface{}, ttl time.Duration) *item {
 		ttl:  ttl,
 		key:  key,
 	}
-	item.mutex.Lock()
+	// since nobody is aware yet of this item, it's safe to touch without lock here
 	item.touch()
-	item.mutex.Unlock()
 	return item
 }
 
@@ -27,7 +25,6 @@ type item struct {
 	data       interface{}
 	ttl        time.Duration
 	expireAt   time.Time
-	mutex      sync.Mutex
 	queueIndex int
 }
 
@@ -40,12 +37,9 @@ func (item *item) touch() {
 
 // Verify if the item is expired
 func (item *item) expired() bool {
-	item.mutex.Lock()
 	if item.ttl <= 0 {
-		item.mutex.Unlock()
 		return false
 	}
 	expired := item.expireAt.Before(time.Now())
-	item.mutex.Unlock()
 	return expired
 }
