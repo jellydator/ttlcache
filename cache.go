@@ -2,7 +2,6 @@ package ttlcache
 
 import (
 	"log"
-	"sort"
 	"sync"
 	"time"
 )
@@ -70,7 +69,7 @@ func (cache *Cache) startExpirationProcessing() {
 
 		cache.expirationTime = time.Now().Add(sleepTime)
 		cache.mutex.Unlock()
-		log.Printf("Sleeping for: %v", sleepTime)
+
 		select {
 		case <-time.After(sleepTime):
 			cache.mutex.Lock()
@@ -79,12 +78,15 @@ func (cache *Cache) startExpirationProcessing() {
 				continue
 			}
 
-			for item := cache.priorityQueue.items[0]; item.expired(); item = cache.priorityQueue.items[0] {
+			// index will only be advanced if the current entry will not be evicted
+			i := 0
+			for item := cache.priorityQueue.items[i]; item.expired(); item = cache.priorityQueue.items[i] {
 
 				if cache.checkExpireCallback != nil {
 					if !cache.checkExpireCallback(item.key, item.data) {
 						item.touch()
 						cache.priorityQueue.update(item)
+						i++
 						continue
 					}
 				}
@@ -148,8 +150,6 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 	} else {
 		cache.priorityQueue.push(item)
 	}
-
-	sort.Sort(cache.priorityQueue)
 
 	cache.mutex.Unlock()
 	if !exists && cache.newItemCallback != nil {

@@ -148,6 +148,8 @@ func TestCacheExpirationCallbackFunction(t *testing.T) {
 	assert.Equal(t, 2, expiredCount, "Expected 2 items to be expired")
 }
 
+// TestCacheCheckExpirationCallbackFunction should consider that the next entry in the queue
+// needs to be considered for eviction even if the callback returns no eviction for the current item
 func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 	expiredCount := 0
 	var lock sync.Mutex
@@ -155,7 +157,7 @@ func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 	cache := NewCache()
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	cache.SetCheckExpirationCallback(func(key string, value interface{}) bool {
-		if key == "key2" {
+		if key == "key2" || key == "key4"{
 			return true
 		}
 		return false
@@ -166,7 +168,11 @@ func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 		lock.Unlock()
 	})
 	cache.Set("key", "value")
+	cache.Set("key3", "value")
 	cache.Set("key2", "value")
+	cache.Set("key4", "value")
+
+
 	<-time.After(110 * time.Millisecond)
 	lock.Lock()
 	assert.Equal(t, 1, expiredCount, "Expected 1 item to be expired")
