@@ -132,15 +132,15 @@ func TestCacheExpirationCallbackFunction(t *testing.T) {
 	var lock sync.Mutex
 
 	cache := NewCache()
-	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	cache.SetTTL(time.Duration(500 * time.Millisecond))
 	cache.SetExpirationCallback(func(key string, value interface{}) {
 		lock.Lock()
 		defer lock.Unlock()
 		expiredCount = expiredCount + 1
 	})
-	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
+	cache.SetWithTTL("key", "value", time.Duration(1000*time.Millisecond))
 	cache.Set("key_2", "value")
-	<-time.After(110 * time.Millisecond)
+	<-time.After(1100 * time.Millisecond)
 
 	lock.Lock()
 	defer lock.Unlock()
