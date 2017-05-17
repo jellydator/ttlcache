@@ -1,7 +1,6 @@
 package ttlcache
 
 import (
-	"log"
 	"sync"
 	"time"
 )

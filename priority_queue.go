@@ -2,7 +2,6 @@ package ttlcache
 
 import (
 	"container/heap"
-	"sync"
 	"time"
 )
 
@@ -13,7 +12,6 @@ func newPriorityQueue() *priorityQueue {
 }
 
 type priorityQueue struct {
-	mutex sync.Mutex
 	items []*item
 }
 
@@ -37,15 +35,12 @@ func (pq *priorityQueue) remove(item *item) {
 }
 
 func (pq priorityQueue) Len() int {
-	pq.mutex.Lock()
 	length := len(pq.items)
-	pq.mutex.Unlock()
 	return length
 }
 
 // Less will consider items with time.Time default value (epoch start) as more than set items.
 func (pq priorityQueue) Less(i, j int) bool {
-	pq.mutex.Lock()
 	var empty time.Time
 	if pq.items[i].expireAt == empty {
 		return false
@@ -54,33 +49,26 @@ func (pq priorityQueue) Less(i, j int) bool {
 		return true
 	}
 	less := pq.items[i].expireAt.Before(pq.items[j].expireAt)
-	pq.mutex.Unlock()
 	return less
 }
 
 func (pq priorityQueue) Swap(i, j int) {
-	pq.mutex.Lock()
 	pq.items[i], pq.items[j] = pq.items[j], pq.items[i]
 	pq.items[i].queueIndex = i
 	pq.items[j].queueIndex = j
-	pq.mutex.Unlock()
 }
 
 func (pq *priorityQueue) Push(x interface{}) {
-	pq.mutex.Lock()
 	item := x.(*item)
 	item.queueIndex = len(pq.items)
 	pq.items = append(pq.items, item)
-	pq.mutex.Unlock()
 }
 
 func (pq *priorityQueue) Pop() interface{} {
-	pq.mutex.Lock()
 	old := pq.items
 	n := len(old)
 	item := old[n-1]
 	item.queueIndex = -1
 	pq.items = old[0 : n-1]
-	pq.mutex.Unlock()
 	return item
 }
