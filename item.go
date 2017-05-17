@@ -16,7 +16,9 @@ func newItem(key string, data interface{}, ttl time.Duration) *item {
 		ttl:  ttl,
 		key:  key,
 	}
+	item.mutex.Lock()
 	item.touch()
+	item.mutex.Unlock()
 	return item
 }
 
@@ -31,11 +33,9 @@ type item struct {
 
 // Reset the item expiration time
 func (item *item) touch() {
-	item.mutex.Lock()
 	if item.ttl > 0 {
 		item.expireAt = time.Now().Add(item.ttl)
 	}
-	item.mutex.Unlock()
 }
 
 // Verify if the item is expired

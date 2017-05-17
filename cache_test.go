@@ -6,6 +6,7 @@ import (
 
 	"fmt"
 	"github.com/stretchr/testify/assert"
+	"sync"
 )
 
 // test github issue #4
@@ -21,7 +22,7 @@ func TestRemovalAndCountDoesNotPanic(t *testing.T) {
 func TestRemovalWithTtlDoesNotPanic(t *testing.T) {
 	cache := NewCache()
 	cache.SetExpirationCallback(func(key string, value interface{}) {
-		fmt.Printf("This key(%s) has expired\n", key)
+		t.Logf("This key(%s) has expired\n", key)
 	})
 
 	cache.SetWithTTL("keyWithTTL", "value", time.Duration(2*time.Second))
@@ -82,17 +83,20 @@ func TestCacheGlobalExpiration(t *testing.T) {
 	cache.Set("key_1", "value")
 	cache.Set("key_2", "value")
 	<-time.After(200 * time.Millisecond)
-	assert.Equal(t, cache.Count(), 0, "Cache should be empty")
-	assert.Equal(t, cache.priorityQueue.Len(), 0, "PriorityQueue should be empty")
+	assert.Equal(t, 0, cache.Count(), "Cache should be empty")
+	assert.Equal(t, 0, cache.priorityQueue.Len(), "PriorityQueue should be empty")
 }
 
 func TestCacheMixedExpirations(t *testing.T) {
 	cache := NewCache()
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		t.Logf("expired: %s", key)
+	})
 	cache.Set("key_1", "value")
 	cache.SetTTL(time.Duration(100 * time.Millisecond))
 	cache.Set("key_2", "value")
-	<-time.After(200 * time.Millisecond)
-	assert.Equal(t, cache.Count(), 1, "Cache should have only 1 item")
+	<-time.After(150 * time.Millisecond)
+	assert.Equal(t, 1, cache.Count(), "Cache should have only 1 item")
 }
 
 func TestCacheIndividualExpiration(t *testing.T) {
@@ -108,7 +112,7 @@ func TestCacheIndividualExpiration(t *testing.T) {
 	cache.SetWithTTL("key4", "value", time.Duration(50*time.Millisecond))
 	<-time.After(100 * time.Millisecond)
 	<-time.After(100 * time.Millisecond)
-	assert.Equal(t, cache.Count(), 0, "Cache should be empty")
+	assert.Equal(t, 0, cache.Count(), "Cache should be empty")
 }
 
 func TestCacheGet(t *testing.T) {
@@ -120,25 +124,34 @@ func TestCacheGet(t *testing.T) {
 	cache.Set("hello", "world")
 	data, exists = cache.Get("hello")
 	assert.NotNil(t, data, "Expected data to be not nil")
-	assert.Equal(t, exists, true, "Expected data to exist")
-	assert.Equal(t, (data.(string)), "world", "Expected data content to be 'world'")
+	assert.Equal(t, true, exists, "Expected data to exist")
+	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
 }
 
 func TestCacheExpirationCallbackFunction(t *testing.T) {
 	expiredCount := 0
+	var lock sync.Mutex
+
 	cache := NewCache()
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	cache.SetExpirationCallback(func(key string, value interface{}) {
+		lock.Lock()
+		defer lock.Unlock()
 		expiredCount = expiredCount + 1
 	})
 	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
 	cache.Set("key_2", "value")
 	<-time.After(110 * time.Millisecond)
-	assert.Equal(t, expiredCount, 2, "Expected 2 items to be expired")
+
+	lock.Lock()
+	defer lock.Unlock()
+	assert.Equal(t, 2, expiredCount, "Expected 2 items to be expired")
 }
 
 func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 	expiredCount := 0
+	var lock sync.Mutex
+
 	cache := NewCache()
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	cache.SetCheckExpirationCallback(func(key string, value interface{}) bool {
@@ -148,12 +161,16 @@ func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 		return false
 	})
 	cache.SetExpirationCallback(func(key string, value interface{}) {
+		lock.Lock()
 		expiredCount = expiredCount + 1
+		lock.Unlock()
 	})
 	cache.Set("key", "value")
 	cache.Set("key2", "value")
 	<-time.After(110 * time.Millisecond)
-	assert.Equal(t, expiredCount, 1, "Expected 1 item to be expired")
+	lock.Lock()
+	assert.Equal(t, 1, expiredCount, "Expected 1 item to be expired")
+	lock.Unlock()
 }
 
 func TestCacheNewItemCallbackFunction(t *testing.T) {
@@ -167,7 +184,7 @@ func TestCacheNewItemCallbackFunction(t *testing.T) {
 	cache.Set("key2", "value")
 	cache.Set("key", "value")
 	<-time.After(110 * time.Millisecond)
-	assert.Equal(t, newItemCount, 2, "Expected only 2 new items")
+	assert.Equal(t, 2, newItemCount, "Expected only 2 new items")
 }
 
 func TestCacheRemove(t *testing.T) {
@@ -178,8 +195,8 @@ func TestCacheRemove(t *testing.T) {
 	<-time.After(70 * time.Millisecond)
 	removeKey := cache.Remove("key")
 	removeKey2 := cache.Remove("key_2")
-	assert.Equal(t, removeKey, true, "Expected 'key' to be removed from cache")
-	assert.Equal(t, removeKey2, false, "Expected 'key_2' to already be expired from cache")
+	assert.Equal(t, true, removeKey, "Expected 'key' to be removed from cache")
+	assert.Equal(t, false, removeKey2, "Expected 'key_2' to already be expired from cache")
 }
 
 func TestCacheSetWithTTLExistItem(t *testing.T) {
@@ -189,8 +206,8 @@ func TestCacheSetWithTTLExistItem(t *testing.T) {
 	<-time.After(30 * time.Millisecond)
 	cache.SetWithTTL("key", "value2", time.Duration(50*time.Millisecond))
 	data, exists := cache.Get("key")
-	assert.Equal(t, exists, true, "Expected 'key' to exist")
-	assert.Equal(t, data.(string), "value2", "Expected 'data' to have value 'value2'")
+	assert.Equal(t, true, exists, "Expected 'key' to exist")
+	assert.Equal(t, "value2", data.(string), "Expected 'data' to have value 'value2'")
 }
 
 func BenchmarkCacheSetWithoutTTL(b *testing.B) {

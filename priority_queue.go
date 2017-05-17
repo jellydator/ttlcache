@@ -3,6 +3,7 @@ package ttlcache
 import (
 	"container/heap"
 	"sync"
+	"time"
 )
 
 func newPriorityQueue() *priorityQueue {
@@ -42,8 +43,16 @@ func (pq priorityQueue) Len() int {
 	return length
 }
 
+// Less will consider items with time.Time default value (epoch start) as more than set items.
 func (pq priorityQueue) Less(i, j int) bool {
 	pq.mutex.Lock()
+	var empty time.Time
+	if pq.items[i].expireAt == empty {
+		return false
+	}
+	if pq.items[j].expireAt == empty {
+		return true
+	}
 	less := pq.items[i].expireAt.Before(pq.items[j].expireAt)
 	pq.mutex.Unlock()
 	return less
