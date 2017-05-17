@@ -130,16 +130,16 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 		if cache.ttl > 0 && item.ttl == 0 {
 			item.ttl = cache.ttl
 		}
-
 		item.touch()
-
-		if exists {
-			cache.priorityQueue.update(item)
-		} else {
-			cache.priorityQueue.push(item)
-		}
-		cache.expirationNotificationTrigger(item)
 	}
+
+	if exists {
+		cache.priorityQueue.update(item)
+	} else {
+		cache.priorityQueue.push(item)
+	}
+	cache.expirationNotificationTrigger(item)
+
 	cache.mutex.Unlock()
 	if !exists && cache.newItemCallback != nil {
 		cache.newItemCallback(key, data)

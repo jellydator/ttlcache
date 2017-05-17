@@ -4,8 +4,48 @@ import (
 	"testing"
 	"time"
 
+	"fmt"
 	"github.com/stretchr/testify/assert"
 )
+
+// test github issue #4
+func TestRemovalAndCountDoesNotPanic(t *testing.T) {
+	cache := NewCache()
+	cache.Set("key", "value")
+	cache.Remove("key")
+	count := cache.Count()
+	fmt.Printf("cache has %d keys\n", count)
+}
+
+// test github issue #3
+func TestRemovalWithTtlDoesNotPanic(t *testing.T) {
+	cache := NewCache()
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		fmt.Printf("This key(%s) has expired\n", key)
+	})
+
+	cache.SetWithTTL("keyWithTTL", "value", time.Duration(2*time.Second))
+	cache.Set("key", "value")
+	cache.Remove("key")
+
+	value, exists := cache.Get("keyWithTTL")
+	if exists {
+		fmt.Printf("got %s for keyWithTTL\n", value)
+	}
+	count := cache.Count()
+	fmt.Printf("cache has %d keys\n", count)
+
+	<-time.After(3 * time.Second)
+
+	value, exists = cache.Get("keyWithTTL")
+	if exists {
+		fmt.Printf("got %s for keyWithTTL\n", value)
+	} else {
+		fmt.Println("keyWithTTL has gone")
+	}
+	count = cache.Count()
+	fmt.Printf("cache has %d keys\n", count)
+}
 
 func TestCacheIndividualExpirationBiggerThanGlobal(t *testing.T) {
 	cache := NewCache()
