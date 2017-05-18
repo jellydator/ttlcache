@@ -3,7 +3,7 @@ package ttlcache
 import (
 	"testing"
 	"time"
-	
+
 	"github.com/stretchr/testify/assert"
 	"sync"
 )
@@ -156,7 +156,7 @@ func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 	cache := NewCache()
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	cache.SetCheckExpirationCallback(func(key string, value interface{}) bool {
-		if key == "key2" || key == "key4"{
+		if key == "key2" || key == "key4" {
 			return true
 		}
 		return false
@@ -170,7 +170,6 @@ func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 	cache.Set("key3", "value")
 	cache.Set("key2", "value")
 	cache.Set("key4", "value")
-
 
 	<-time.After(110 * time.Millisecond)
 	lock.Lock()
@@ -213,6 +212,23 @@ func TestCacheSetWithTTLExistItem(t *testing.T) {
 	data, exists := cache.Get("key")
 	assert.Equal(t, true, exists, "Expected 'key' to exist")
 	assert.Equal(t, "value2", data.(string), "Expected 'data' to have value 'value2'")
+}
+
+func TestCache_Purge(t *testing.T) {
+	cache := NewCache()
+	cache.SetTTL(time.Duration(100 * time.Millisecond))
+
+	for i := 0; i < 5; i++ {
+
+		cache.SetWithTTL("key", "value", time.Duration(50*time.Millisecond))
+		<-time.After(30 * time.Millisecond)
+		cache.SetWithTTL("key", "value2", time.Duration(50*time.Millisecond))
+		cache.Get("key")
+
+		cache.Purge()
+		assert.Equal(t, 0, cache.Count(), "Cache should be empty")
+	}
+
 }
 
 func BenchmarkCacheSetWithoutTTL(b *testing.B) {

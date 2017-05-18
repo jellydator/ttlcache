@@ -99,9 +99,8 @@ func (cache *Cache) startExpirationProcessing() {
 					goto done
 				}
 			}
-			done:
+		done:
 			cache.mutex.Unlock()
-
 
 		case <-cache.expirationNotification:
 			continue
@@ -210,6 +209,14 @@ func (cache *Cache) SetCheckExpirationCallback(callback checkExpireCallback) {
 // SetNewItemCallback sets a callback that will be called when a new item is added to the cache
 func (cache *Cache) SetNewItemCallback(callback expireCallback) {
 	cache.newItemCallback = callback
+}
+
+// Purge will remove all entries
+func (cache *Cache) Purge() {
+	cache.mutex.Lock()
+	cache.items = make(map[string]*item)
+	cache.priorityQueue = newPriorityQueue()
+	cache.mutex.Unlock()
 }
 
 // NewCache is a helper to create instance of the Cache struct
