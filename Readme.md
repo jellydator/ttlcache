@@ -1,8 +1,3 @@
-# READ BEFORE USE!
-This project have some problems, don't use it in production. I'm really out of time to fix it now, so if you must use this project, please, fix it first and send a PR or join as a contributor.
-
-If you really need something ready to use just take a look [here](https://github.com/avelino/awesome-go#data-structures)
-
 ## TTLCache - an in-memory cache with expiration
 
 TTLCache is a simple key/value cache in golang with the following functions:
