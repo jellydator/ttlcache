@@ -54,7 +54,7 @@ func (cache *Cache) startExpirationProcessing() {
 		if cache.priorityQueue.Len() > 0 {
 			sleepTime = cache.priorityQueue.items[0].expireAt.Sub(time.Now())
 			if sleepTime < 0 {
-				sleepTime = time.Duration(time.Hour)
+				sleepTime = time.Hour
 			}
 			if cache.ttl > 0 {
 				sleepTime = min(sleepTime, cache.ttl)
@@ -63,7 +63,7 @@ func (cache *Cache) startExpirationProcessing() {
 		} else if cache.ttl > 0 {
 			sleepTime = cache.ttl
 		} else {
-			sleepTime = time.Duration(1 * time.Hour)
+			sleepTime = time.Hour
 		}
 
 		cache.expirationTime = time.Now().Add(sleepTime)
@@ -224,7 +224,7 @@ func NewCache() *Cache {
 	cache := &Cache{
 		items:                  make(map[string]*item),
 		priorityQueue:          newPriorityQueue(),
-		expirationNotification: make(chan bool, 1),
+		expirationNotification: make(chan bool),
 		expirationTime:         time.Now(),
 	}
 	go cache.startExpirationProcessing()
