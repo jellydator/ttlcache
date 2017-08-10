@@ -2,7 +2,6 @@ package ttlcache
 
 import (
 	"container/heap"
-	"time"
 )
 
 func newPriorityQueue() *priorityQueue {
@@ -41,15 +40,13 @@ func (pq priorityQueue) Len() int {
 
 // Less will consider items with time.Time default value (epoch start) as more than set items.
 func (pq priorityQueue) Less(i, j int) bool {
-	var empty time.Time
-	if pq.items[i].expireAt == empty {
+	if pq.items[i].expireAt.IsZero() {
 		return false
 	}
-	if pq.items[j].expireAt == empty {
+	if pq.items[j].expireAt.IsZero() {
 		return true
 	}
-	less := pq.items[i].expireAt.Before(pq.items[j].expireAt)
-	return less
+	return pq.items[i].expireAt.Before(pq.items[j].expireAt)
 }
 
 func (pq priorityQueue) Swap(i, j int) {
