@@ -4,9 +4,37 @@ import (
 	"testing"
 	"time"
 
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"sync"
 )
+
+// test github issue #9
+// Due to scheduling the expected TTL of the top entry can become negative (already expired)
+// This is an issue because negative TTL at the item level was interpreted as 'use global TTL'
+// Which is not right when we become negative due to scheduling.
+// This test could use improvement as it's not requiring a lot of time to trigger.
+func TestCache_SetExpirationCallback(t *testing.T) {
+
+	type A struct {
+	}
+
+	// Setup the TTL cache
+	cache := NewCache()
+	cache.SetTTL(time.Second * 1)
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		fmt.Printf("This key(%s) has expired\n", key)
+	})
+	for i := 0; i < 1024; i++ {
+		cache.Set(fmt.Sprintf("item_%d", i), A{})
+		time.Sleep(time.Millisecond * 10)
+		fmt.Printf("Cache size: %d\n", cache.Count())
+	}
+
+	if cache.Count() > 100 {
+		t.Fatal("Cache should empty entries >1 second old")
+	}
+}
 
 // test github issue #4
 func TestRemovalAndCountDoesNotPanic(t *testing.T) {
@@ -173,7 +201,7 @@ func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 
 	<-time.After(110 * time.Millisecond)
 	lock.Lock()
-	assert.Equal(t, 1, expiredCount, "Expected 1 item to be expired")
+	assert.Equal(t, 2, expiredCount, "Expected 2 items to be expired")
 	lock.Unlock()
 }
 
