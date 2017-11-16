@@ -8,7 +8,7 @@ TTLCache is a simple key/value cache in golang with the following functions:
 4. Fast and memory efficient
 5. Can trigger callback on key expiration
 
-[![Build Status](https://travis-ci.org/diegobernardes/ttlcache.svg?branch=master)](https://travis-ci.org/diegobernardes/ttlcache)
+[![Build Status](https://travis-ci.org/ReneKroon/ttlcache.svg?branch=master)](https://travis-ci.org/ReneKroon/ttlcache)
 
 #### Usage
 ```go
@@ -16,7 +16,7 @@ import (
   "time"
   "fmt"
 
-  "github.com/diegobernardes/ttlcache"
+  "github.com/ReneKroon/ttlcache"
 )
 
 func main () {
