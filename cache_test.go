@@ -7,7 +7,34 @@ import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
 	"sync"
+	"log"
 )
+
+// test github issue #14
+// Testing expiration callback would continue with the next item in list, even when it exceeds list lengths
+func TestCache_SetCheckExpirationCallback(t *testing.T) {
+	iterated := 0
+	ch := make(chan struct{})
+
+	cacheAD := NewCache()
+	cacheAD.SetTTL(time.Millisecond)
+	cacheAD.SetCheckExpirationCallback(func(key string, value interface{}) bool {
+		v := value.(*int)
+		log.Printf("key=%v, value=%d\n", key, *v)
+		iterated++
+		if iterated == 1 {
+			// this is the breaking test case for issue #14
+			return false
+		}
+		ch <- struct{}{}
+		return true
+	})
+
+	i := 2
+	cacheAD.Set("a", &i)
+
+	<-ch
+}
 
 // test github issue #9
 // Due to scheduling the expected TTL of the top entry can become negative (already expired)

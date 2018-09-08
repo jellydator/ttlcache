@@ -88,6 +88,9 @@ func (cache *Cache) startExpirationProcessing() {
 						item.touch()
 						cache.priorityQueue.update(item)
 						i++
+						if i == cache.priorityQueue.Len() {
+							break
+						}
 						continue
 					}
 				}
