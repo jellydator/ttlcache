@@ -1,8 +1,8 @@
 language: go
 
 go:
-  - 1.9
-  - 1.8
+  - 1.11
+  - 1.10
 git:
   depth: 1
 
