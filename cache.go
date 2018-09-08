@@ -22,6 +22,7 @@ type Cache struct {
 	priorityQueue          *priorityQueue
 	expirationNotification chan bool
 	expirationTime         time.Time
+	skipTtlExtension	   bool
 }
 
 func (cache *Cache) getItem(key string) (*item, bool) {
@@ -38,7 +39,9 @@ func (cache *Cache) getItem(key string) (*item, bool) {
 			item.ttl = cache.ttl
 		}
 
-		item.touch()
+		if !cache.skipTtlExtension {
+			item.touch()
+		}
 		cache.priorityQueue.update(item)
 	}
 
@@ -85,7 +88,9 @@ func (cache *Cache) startExpirationProcessing() {
 
 				if cache.checkExpireCallback != nil {
 					if !cache.checkExpireCallback(item.key, item.data) {
-						item.touch()
+						if !cache.skipTtlExtension {
+							item.touch()
+						}
 						cache.priorityQueue.update(item)
 						i++
 						if i == cache.priorityQueue.Len() {
@@ -214,6 +219,12 @@ func (cache *Cache) SetCheckExpirationCallback(callback checkExpireCallback) {
 // SetNewItemCallback sets a callback that will be called when a new item is added to the cache
 func (cache *Cache) SetNewItemCallback(callback expireCallback) {
 	cache.newItemCallback = callback
+}
+// SkipTtlExtensionOnHit allows the user to change the cache behaviour. When this flag is set to true it will
+// no longer extend TTL of items when they are retrieved using Get, or when their expiration condition is evaluated
+// using SetCheckExpirationCallback.
+func (cache *Cache) SkipTtlExtensionOnHit(value bool) {
+	cache.skipTtlExtension = value
 }
 
 // Purge will remove all entries

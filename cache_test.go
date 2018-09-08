@@ -6,9 +6,32 @@ import (
 
 	"fmt"
 	"github.com/stretchr/testify/assert"
-	"sync"
 	"log"
+	"sync"
 )
+
+// test for Feature request in issue #12
+//
+func TestCache_SkipTtlExtensionOnHit(t *testing.T) {
+	cache := NewCache()
+	cache.SetTTL(time.Millisecond * 100)
+
+	cache.SkipTtlExtensionOnHit(false)
+	cache.Set("test", "!")
+	startTime := time.Now()
+	for now := time.Now(); now.Before(startTime.Add(time.Second * 3)); now = time.Now() {
+		if _, found := cache.Get("test"); !found {
+			t.Errorf("Item was not found, even though it should not expire.")
+		}
+
+	}
+
+	cache.SkipTtlExtensionOnHit(true)
+	cache.Set("expireTest", "!")
+	// will loop if item does not expire
+	for _, found := cache.Get("expireTest"); found; _, found = cache.Get("expireTest"){
+	}
+}
 
 // test github issue #14
 // Testing expiration callback would continue with the next item in list, even when it exceeds list lengths
