@@ -87,6 +87,9 @@ func (cache *Cache) startExpirationProcessing() {
 					if !cache.checkExpireCallback(item.key, item.data) {
 						item.touch()
 						cache.priorityQueue.update(item)
+						if cache.priorityQueue.Len() == 1 {
+							goto done
+						}
 						i++
 						continue
 					}
