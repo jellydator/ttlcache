@@ -4,7 +4,7 @@ TTLCache is a simple key/value cache in golang with the following functions:
 
 1. Thread-safe
 2. Individual expiring time or global expiring time, you can choose
-3. Auto-Extending expiration on `Get`
+3. Auto-Extending expiration on `Get` -or- DNS style TTL, see `SkipTtlExtensionOnHit(bool)`
 4. Fast and memory efficient
 5. Can trigger callback on key expiration
 
