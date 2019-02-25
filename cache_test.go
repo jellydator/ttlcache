@@ -5,9 +5,10 @@ import (
 	"time"
 
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"log"
 	"sync"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // test for Feature request in issue #12
@@ -29,7 +30,7 @@ func TestCache_SkipTtlExtensionOnHit(t *testing.T) {
 	cache.SkipTtlExtensionOnHit(true)
 	cache.Set("expireTest", "!")
 	// will loop if item does not expire
-	for _, found := cache.Get("expireTest"); found; _, found = cache.Get("expireTest"){
+	for _, found := cache.Get("expireTest"); found; _, found = cache.Get("expireTest") {
 	}
 }
 
@@ -232,6 +233,7 @@ func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 	var lock sync.Mutex
 
 	cache := NewCache()
+	cache.SkipTtlExtensionOnHit(true)
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	cache.SetCheckExpirationCallback(func(key string, value interface{}) bool {
 		if key == "key2" || key == "key4" {
