@@ -5,7 +5,9 @@ import (
 )
 
 const (
-	ItemNotExpire           time.Duration = -1
+	// ItemNotExpire Will avoid the item being expired by TTL, but can still be exired by callback etc.
+	ItemNotExpire time.Duration = -1
+	// ItemExpireWithGlobalTTL will use the global TTL when set.
 	ItemExpireWithGlobalTTL time.Duration = 0
 )
 
