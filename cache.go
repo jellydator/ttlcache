@@ -13,7 +13,7 @@ type expireCallback func(key string, value interface{})
 
 // Cache is a synchronized map of items that can auto-expire once stale
 type Cache struct {
-	mutex                  sync.Mutex
+	mutex                  sync.RWMutex
 	ttl                    time.Duration
 	items                  map[string]*item
 	expireCallback         expireCallback
@@ -22,15 +22,15 @@ type Cache struct {
 	priorityQueue          *priorityQueue
 	expirationNotification chan bool
 	expirationTime         time.Time
-	skipTTLExtension       bool
+	skipTtlExtension       bool
 }
 
 func (cache *Cache) getItem(key string) (*item, bool) {
-	cache.mutex.Lock()
+	cache.mutex.RLock()
 
 	item, exists := cache.items[key]
 	if !exists || item.expired() {
-		cache.mutex.Unlock()
+		cache.mutex.RUnlock()
 		return nil, false
 	}
 
@@ -39,13 +39,13 @@ func (cache *Cache) getItem(key string) (*item, bool) {
 			item.ttl = cache.ttl
 		}
 
-		if !cache.skipTTLExtension {
+		if !cache.skipTtlExtension {
 			item.touch()
 		}
 		cache.priorityQueue.update(item)
 	}
 
-	cache.mutex.Unlock()
+	cache.mutex.RUnlock()
 	cache.expirationNotificationTrigger(item)
 	return item, exists
 }
@@ -169,12 +169,13 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 func (cache *Cache) Get(key string) (interface{}, bool) {
 	item, exists := cache.getItem(key)
 	if exists {
+		cache.mutex.RLock()
+		defer cache.mutex.RUnlock()
 		return item.data, true
 	}
 	return nil, false
 }
 
-// Remove a key from the cache, returns true if the object was in the cache
 func (cache *Cache) Remove(key string) bool {
 	cache.mutex.Lock()
 	object, exists := cache.items[key]
@@ -191,13 +192,12 @@ func (cache *Cache) Remove(key string) bool {
 
 // Count returns the number of items in the cache
 func (cache *Cache) Count() int {
-	cache.mutex.Lock()
+	cache.mutex.RLock()
 	length := len(cache.items)
-	cache.mutex.Unlock()
+	cache.mutex.RUnlock()
 	return length
 }
 
-// SetTTL sets the global TTL for the cache, can be overridden on a per element basis.
 func (cache *Cache) SetTTL(ttl time.Duration) {
 	cache.mutex.Lock()
 	cache.ttl = ttl
@@ -225,7 +225,7 @@ func (cache *Cache) SetNewItemCallback(callback expireCallback) {
 // no longer extend TTL of items when they are retrieved using Get, or when their expiration condition is evaluated
 // using SetCheckExpirationCallback.
 func (cache *Cache) SkipTtlExtensionOnHit(value bool) {
-	cache.skipTTLExtension = value
+	cache.skipTtlExtension = value
 }
 
 // Purge will remove all entries

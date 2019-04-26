@@ -34,6 +34,44 @@ func TestCache_SkipTtlExtensionOnHit(t *testing.T) {
 	}
 }
 
+func TestCache_SkipTtlExtensionOnHit_ForRacesAcrossGoroutines(t *testing.T) {
+	cache := NewCache()
+	cache.SetTTL(time.Minute * 1)
+	cache.SkipTtlExtensionOnHit(true)
+
+	var wgSet sync.WaitGroup
+	var wgGet sync.WaitGroup
+
+	n := 500
+	wgSet.Add(1)
+	go func() {
+		for i := 0; i < n; i++ {
+			wgSet.Add(1)
+
+			go func() {
+				cache.Set("test", false)
+				wgSet.Done()
+			}()
+		}
+		wgSet.Done()
+	}()
+	wgGet.Add(1)
+	go func() {
+		for i := 0; i < n; i++ {
+			wgGet.Add(1)
+
+			go func() {
+				cache.Get("test")
+				wgGet.Done()
+			}()
+		}
+		wgGet.Done()
+	}()
+
+	wgGet.Wait()
+	wgSet.Wait()
+}
+
 // test github issue #14
 // Testing expiration callback would continue with the next item in list, even when it exceeds list lengths
 func TestCache_SetCheckExpirationCallback(t *testing.T) {
