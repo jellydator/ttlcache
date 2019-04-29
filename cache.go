@@ -55,7 +55,7 @@ func (cache *Cache) startExpirationProcessing() {
 		var sleepTime time.Duration
 		cache.mutex.Lock()
 		if cache.priorityQueue.Len() > 0 {
-			sleepTime = cache.priorityQueue.items[0].expireAt.Sub(time.Now())
+			sleepTime = time.Until(cache.priorityQueue.items[0].expireAt)
 			if sleepTime < 0 && cache.priorityQueue.items[0].expireAt.IsZero() {
 				sleepTime = time.Hour
 			} else if sleepTime < 0 {
