@@ -18,3 +18,4 @@ script:
   - golint .
   - go test ./... -race -count=1 -timeout=1m -run .
   - go test -cover ./...
+  - go test -run=Bench.* -bench=. -benchmem
