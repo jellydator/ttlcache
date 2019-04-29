@@ -74,8 +74,10 @@ func (cache *Cache) startExpirationProcessing() {
 		cache.expirationTime = time.Now().Add(sleepTime)
 		cache.mutex.Unlock()
 
+		timer := time.NewTimer(sleepTime)
 		select {
-		case <-time.After(sleepTime):
+		case <-timer.C:
+			timer.Stop()
 			cache.mutex.Lock()
 			if cache.priorityQueue.Len() == 0 {
 				cache.mutex.Unlock()
@@ -111,6 +113,7 @@ func (cache *Cache) startExpirationProcessing() {
 			cache.mutex.Unlock()
 
 		case <-cache.expirationNotification:
+			timer.Stop()
 			continue
 		}
 	}
