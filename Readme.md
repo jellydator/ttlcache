@@ -49,13 +49,6 @@ func main () {
 }
 ```
 
-## TODO
-
-- Comment the code
-- Add a roadmap
-- Add benchmarks
-- Improve map performance
-
 #### Original Project
 
 TTLCache was forked from [wunderlist/ttlcache](https://github.com/wunderlist/ttlcache) to add extra functions not avaiable in the original scope.
