@@ -163,7 +163,7 @@ func (cache *Cache) Get(key string) (interface{}, bool) {
 	cache.mutex.Lock()
 	item, exists, triggerExpirationNotification := cache.getItem(key)
 
-	var dataToReturn interface{} = nil
+	var dataToReturn interface{}
 	if exists {
 		dataToReturn = item.data
 	}
