@@ -1,6 +1,7 @@
 package ttlcache
 
 import (
+	"math/rand"
 	"testing"
 	"time"
 
@@ -34,6 +35,50 @@ func TestCache_SkipTtlExtensionOnHit(t *testing.T) {
 	}
 }
 
+func TestCache_ForRacesAcrossGoroutines(t *testing.T) {
+	cache := NewCache()
+	cache.SetTTL(time.Minute * 1)
+	cache.SkipTtlExtensionOnHit(false)
+
+	var wgSet sync.WaitGroup
+	var wgGet sync.WaitGroup
+
+	n := 500
+	wgSet.Add(1)
+	go func() {
+		for i := 0; i < n; i++ {
+			wgSet.Add(1)
+
+			go func(i int) {
+				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
+				if i%2 == 0 {
+					cache.Set(fmt.Sprintf("test%d", i /10), false)
+				} else {
+					cache.SetWithTTL(fmt.Sprintf("test%d", i /10), false, time.Second*59)
+				}
+				wgSet.Done()
+			}(i)
+		}
+		wgSet.Done()
+	}()
+	wgGet.Add(1)
+	go func() {
+		for i := 0; i < n; i++ {
+			wgGet.Add(1)
+
+			go func(i int) {
+				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
+				cache.Get(fmt.Sprintf("test%d", i /10))
+				wgGet.Done()
+			}(i)
+		}
+		wgGet.Done()
+	}()
+
+	wgGet.Wait()
+	wgSet.Wait()
+}
+
 func TestCache_SkipTtlExtensionOnHit_ForRacesAcrossGoroutines(t *testing.T) {
 	cache := NewCache()
 	cache.SetTTL(time.Minute * 1)
@@ -48,10 +93,15 @@ func TestCache_SkipTtlExtensionOnHit_ForRacesAcrossGoroutines(t *testing.T) {
 		for i := 0; i < n; i++ {
 			wgSet.Add(1)
 
-			go func() {
-				cache.Set("test", false)
+			go func(i int) {
+				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
+				if i%2 == 0 {
+					cache.Set(fmt.Sprintf("test%d", i /10), false)
+				} else {
+					cache.SetWithTTL(fmt.Sprintf("test%d", i /10), false, time.Second*59)
+				}
 				wgSet.Done()
-			}()
+			}(i)
 		}
 		wgSet.Done()
 	}()
@@ -60,10 +110,11 @@ func TestCache_SkipTtlExtensionOnHit_ForRacesAcrossGoroutines(t *testing.T) {
 		for i := 0; i < n; i++ {
 			wgGet.Add(1)
 
-			go func() {
-				cache.Get("test")
+			go func(i int) {
+				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
+				cache.Get(fmt.Sprintf("test%d", i /10))
 				wgGet.Done()
-			}()
+			}(i)
 		}
 		wgGet.Done()
 	}()
