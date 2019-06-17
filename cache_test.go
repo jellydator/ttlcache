@@ -1,6 +1,7 @@
 package ttlcache
 
 import (
+	"math/rand"
 	"testing"
 	"time"
 
@@ -49,6 +50,7 @@ func TestCache_SkipTtlExtensionOnHit_ForRacesAcrossGoroutines(t *testing.T) {
 			wgSet.Add(1)
 
 			go func() {
+				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
 				cache.Set("test", false)
 				wgSet.Done()
 			}()
@@ -61,6 +63,7 @@ func TestCache_SkipTtlExtensionOnHit_ForRacesAcrossGoroutines(t *testing.T) {
 			wgGet.Add(1)
 
 			go func() {
+				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
 				cache.Get("test")
 				wgGet.Done()
 			}()

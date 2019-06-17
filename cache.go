@@ -51,6 +51,7 @@ func (cache *Cache) getItem(key string) (*item, bool) {
 }
 
 func (cache *Cache) startExpirationProcessing() {
+	timer := time.NewTimer(time.Hour)
 	for {
 		var sleepTime time.Duration
 		cache.mutex.Lock()
@@ -74,7 +75,7 @@ func (cache *Cache) startExpirationProcessing() {
 		cache.expirationTime = time.Now().Add(sleepTime)
 		cache.mutex.Unlock()
 
-		timer := time.NewTimer(sleepTime)
+		timer.Reset(sleepTime)
 		select {
 		case <-timer.C:
 			timer.Stop()
