@@ -49,6 +49,12 @@ func main () {
 }
 ```
 
+#### TTLCache - Some design considerations
+
+1. The complexity of the current cache is already quite high. Therefore i will not add 'convenience' features like an interface to supply a function to get missing keys. 
+2. The locking should be done only in the functions of the Cache struct. Else data races can occur or recursive locks are needed, which are both unwanted.
+3. I prefer correct functionality over fast tests. It's ok for new tests to take seconds to proof something.
+
 #### Original Project
 
 TTLCache was forked from [wunderlist/ttlcache](https://github.com/wunderlist/ttlcache) to add extra functions not avaiable in the original scope.
