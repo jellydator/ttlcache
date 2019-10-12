@@ -4,3 +4,6 @@ github.com/davecgh/go-spew/spew
 github.com/pmezard/go-difflib/difflib
 # github.com/stretchr/testify v1.3.0
 github.com/stretchr/testify/assert
+# go.uber.org/goleak v0.10.0
+go.uber.org/goleak
+go.uber.org/goleak/internal/stack
