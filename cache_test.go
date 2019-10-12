@@ -5,18 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"go.uber.org/goleak"
-
 	"fmt"
 	"log"
 	"sync"
 
 	"github.com/stretchr/testify/assert"
 )
-
-func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
-}
 
 // Issue #23: Goroutine leak on closing. When adding a close method i would like to see
 // that it can be called in a repeated way without problems.
@@ -466,32 +460,3 @@ func TestCache_Purge(t *testing.T) {
 	}
 
 }
-
-/*
-func BenchmarkCacheSetWithoutTTL(b *testing.B) {
-	cache := NewCache()
-	defer cache.Close()
-
-	for n := 0; n < b.N; n++ {
-		cache.Set(string(n), "value")
-	}
-}
-
-func BenchmarkCacheSetWithGlobalTTL(b *testing.B) {
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetTTL(time.Duration(50 * time.Millisecond))
-	for n := 0; n < b.N; n++ {
-		cache.Set(string(n), "value")
-	}
-}
-
-func BenchmarkCacheSetWithTTL(b *testing.B) {
-	cache := NewCache()
-	defer cache.Close()
-
-	for n := 0; n < b.N; n++ {
-		cache.SetWithTTL(string(n), "value", time.Duration(50*time.Millisecond))
-	}
-}*/

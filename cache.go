@@ -23,7 +23,7 @@ type Cache struct {
 	expirationNotification chan bool
 	expirationTime         time.Time
 	skipTTLExtension       bool
-	shutdownSignal         chan (struct{})
+	shutdownSignal         chan struct{}
 }
 
 func (cache *Cache) getItem(key string) (*item, bool, bool) {
