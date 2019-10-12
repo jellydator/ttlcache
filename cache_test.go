@@ -10,12 +10,42 @@ import (
 	"sync"
 
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/goleak"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
+
+// Issue #23: Goroutine leak on closing. When adding a close method i would like to see
+// that it can be called in a repeated way without problems.
+func TestCache_MultipleCloseCalls(t *testing.T) {
+	cache := NewCache()
+
+	cache.SetTTL(time.Millisecond * 100)
+
+	cache.SkipTtlExtensionOnHit(false)
+	cache.Set("test", "!")
+	startTime := time.Now()
+	for now := time.Now(); now.Before(startTime.Add(time.Second * 3)); now = time.Now() {
+		if _, found := cache.Get("test"); !found {
+			t.Errorf("Item was not found, even though it should not expire.")
+		}
+
+	}
+
+	cache.Close()
+	cache.Close()
+	cache.Close()
+	cache.Close()
+}
 
 // test for Feature request in issue #12
 //
 func TestCache_SkipTtlExtensionOnHit(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetTTL(time.Millisecond * 100)
 
 	cache.SkipTtlExtensionOnHit(false)
@@ -37,6 +67,8 @@ func TestCache_SkipTtlExtensionOnHit(t *testing.T) {
 
 func TestCache_ForRacesAcrossGoroutines(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetTTL(time.Minute * 1)
 	cache.SkipTtlExtensionOnHit(false)
 
@@ -52,9 +84,9 @@ func TestCache_ForRacesAcrossGoroutines(t *testing.T) {
 			go func(i int) {
 				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
 				if i%2 == 0 {
-					cache.Set(fmt.Sprintf("test%d", i /10), false)
+					cache.Set(fmt.Sprintf("test%d", i/10), false)
 				} else {
-					cache.SetWithTTL(fmt.Sprintf("test%d", i /10), false, time.Second*59)
+					cache.SetWithTTL(fmt.Sprintf("test%d", i/10), false, time.Second*59)
 				}
 				wgSet.Done()
 			}(i)
@@ -68,7 +100,7 @@ func TestCache_ForRacesAcrossGoroutines(t *testing.T) {
 
 			go func(i int) {
 				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
-				cache.Get(fmt.Sprintf("test%d", i /10))
+				cache.Get(fmt.Sprintf("test%d", i/10))
 				wgGet.Done()
 			}(i)
 		}
@@ -81,6 +113,8 @@ func TestCache_ForRacesAcrossGoroutines(t *testing.T) {
 
 func TestCache_SkipTtlExtensionOnHit_ForRacesAcrossGoroutines(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetTTL(time.Minute * 1)
 	cache.SkipTtlExtensionOnHit(true)
 
@@ -96,9 +130,9 @@ func TestCache_SkipTtlExtensionOnHit_ForRacesAcrossGoroutines(t *testing.T) {
 			go func(i int) {
 				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
 				if i%2 == 0 {
-					cache.Set(fmt.Sprintf("test%d", i /10), false)
+					cache.Set(fmt.Sprintf("test%d", i/10), false)
 				} else {
-					cache.SetWithTTL(fmt.Sprintf("test%d", i /10), false, time.Second*59)
+					cache.SetWithTTL(fmt.Sprintf("test%d", i/10), false, time.Second*59)
 				}
 				wgSet.Done()
 			}(i)
@@ -112,7 +146,7 @@ func TestCache_SkipTtlExtensionOnHit_ForRacesAcrossGoroutines(t *testing.T) {
 
 			go func(i int) {
 				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
-				cache.Get(fmt.Sprintf("test%d", i /10))
+				cache.Get(fmt.Sprintf("test%d", i/10))
 				wgGet.Done()
 			}(i)
 		}
@@ -130,6 +164,8 @@ func TestCache_SetCheckExpirationCallback(t *testing.T) {
 	ch := make(chan struct{})
 
 	cacheAD := NewCache()
+	defer cacheAD.Close()
+
 	cacheAD.SetTTL(time.Millisecond)
 	cacheAD.SetCheckExpirationCallback(func(key string, value interface{}) bool {
 		v := value.(*int)
@@ -161,6 +197,8 @@ func TestCache_SetExpirationCallback(t *testing.T) {
 
 	// Setup the TTL cache
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetTTL(time.Second * 1)
 	cache.SetExpirationCallback(func(key string, value interface{}) {
 		fmt.Printf("This key(%s) has expired\n", key)
@@ -179,6 +217,8 @@ func TestCache_SetExpirationCallback(t *testing.T) {
 // test github issue #4
 func TestRemovalAndCountDoesNotPanic(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.Set("key", "value")
 	cache.Remove("key")
 	count := cache.Count()
@@ -188,6 +228,8 @@ func TestRemovalAndCountDoesNotPanic(t *testing.T) {
 // test github issue #3
 func TestRemovalWithTtlDoesNotPanic(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetExpirationCallback(func(key string, value interface{}) {
 		t.Logf("This key(%s) has expired\n", key)
 	})
@@ -217,6 +259,8 @@ func TestRemovalWithTtlDoesNotPanic(t *testing.T) {
 
 func TestCacheIndividualExpirationBiggerThanGlobal(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
 	<-time.After(150 * time.Millisecond)
@@ -227,6 +271,8 @@ func TestCacheIndividualExpirationBiggerThanGlobal(t *testing.T) {
 
 func TestCacheGlobalExpirationByGlobal(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.Set("key", "value")
 	<-time.After(50 * time.Millisecond)
 	data, exists := cache.Get("key")
@@ -246,6 +292,8 @@ func TestCacheGlobalExpirationByGlobal(t *testing.T) {
 
 func TestCacheGlobalExpiration(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetTTL(time.Duration(100 * time.Millisecond))
 	cache.Set("key_1", "value")
 	cache.Set("key_2", "value")
@@ -256,6 +304,8 @@ func TestCacheGlobalExpiration(t *testing.T) {
 
 func TestCacheMixedExpirations(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetExpirationCallback(func(key string, value interface{}) {
 		t.Logf("expired: %s", key)
 	})
@@ -268,6 +318,8 @@ func TestCacheMixedExpirations(t *testing.T) {
 
 func TestCacheIndividualExpiration(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
 	cache.SetWithTTL("key2", "value", time.Duration(100*time.Millisecond))
 	cache.SetWithTTL("key3", "value", time.Duration(100*time.Millisecond))
@@ -284,6 +336,8 @@ func TestCacheIndividualExpiration(t *testing.T) {
 
 func TestCacheGet(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	data, exists := cache.Get("hello")
 	assert.Equal(t, exists, false, "Expected empty cache to return no data")
 	assert.Nil(t, data, "Expected data to be empty")
@@ -300,6 +354,8 @@ func TestCacheExpirationCallbackFunction(t *testing.T) {
 	var lock sync.Mutex
 
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetTTL(time.Duration(500 * time.Millisecond))
 	cache.SetExpirationCallback(func(key string, value interface{}) {
 		lock.Lock()
@@ -322,6 +378,8 @@ func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 	var lock sync.Mutex
 
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SkipTtlExtensionOnHit(true)
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	cache.SetCheckExpirationCallback(func(key string, value interface{}) bool {
@@ -349,6 +407,8 @@ func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 func TestCacheNewItemCallbackFunction(t *testing.T) {
 	newItemCount := 0
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	cache.SetNewItemCallback(func(key string, value interface{}) {
 		newItemCount = newItemCount + 1
@@ -362,6 +422,8 @@ func TestCacheNewItemCallbackFunction(t *testing.T) {
 
 func TestCacheRemove(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
 	cache.Set("key_2", "value")
@@ -374,6 +436,8 @@ func TestCacheRemove(t *testing.T) {
 
 func TestCacheSetWithTTLExistItem(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetTTL(time.Duration(100 * time.Millisecond))
 	cache.SetWithTTL("key", "value", time.Duration(50*time.Millisecond))
 	<-time.After(30 * time.Millisecond)
@@ -385,6 +449,8 @@ func TestCacheSetWithTTLExistItem(t *testing.T) {
 
 func TestCache_Purge(t *testing.T) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetTTL(time.Duration(100 * time.Millisecond))
 
 	for i := 0; i < 5; i++ {
@@ -402,6 +468,8 @@ func TestCache_Purge(t *testing.T) {
 
 func BenchmarkCacheSetWithoutTTL(b *testing.B) {
 	cache := NewCache()
+	defer cache.Close()
+
 	for n := 0; n < b.N; n++ {
 		cache.Set(string(n), "value")
 	}
@@ -409,6 +477,8 @@ func BenchmarkCacheSetWithoutTTL(b *testing.B) {
 
 func BenchmarkCacheSetWithGlobalTTL(b *testing.B) {
 	cache := NewCache()
+	defer cache.Close()
+
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	for n := 0; n < b.N; n++ {
 		cache.Set(string(n), "value")
@@ -417,6 +487,8 @@ func BenchmarkCacheSetWithGlobalTTL(b *testing.B) {
 
 func BenchmarkCacheSetWithTTL(b *testing.B) {
 	cache := NewCache()
+	defer cache.Close()
+
 	for n := 0; n < b.N; n++ {
 		cache.SetWithTTL(string(n), "value", time.Duration(50*time.Millisecond))
 	}
