@@ -78,6 +78,7 @@ func (cache *Cache) startExpirationProcessing() {
 		timer.Reset(sleepTime)
 		select {
 		case <-cache.shutdownSignal:
+			timer.Stop()
 			return
 		case <-timer.C:
 			timer.Stop()
@@ -128,6 +129,7 @@ func (cache *Cache) Close() {
 	cache.mutex.Lock()
 	if cache.shutdownSignal != nil {
 		cache.shutdownSignal <- struct{}{}
+		close(cache.shutdownSignal)
 	}
 	cache.shutdownSignal = nil
 	cache.mutex.Unlock()

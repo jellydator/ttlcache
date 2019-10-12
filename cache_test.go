@@ -5,12 +5,13 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/goleak"
+
 	"fmt"
 	"log"
 	"sync"
 
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/goleak"
 )
 
 func TestMain(m *testing.M) {
@@ -466,6 +467,7 @@ func TestCache_Purge(t *testing.T) {
 
 }
 
+/*
 func BenchmarkCacheSetWithoutTTL(b *testing.B) {
 	cache := NewCache()
 	defer cache.Close()
@@ -492,4 +494,4 @@ func BenchmarkCacheSetWithTTL(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		cache.SetWithTTL(string(n), "value", time.Duration(50*time.Millisecond))
 	}
-}
+}*/
