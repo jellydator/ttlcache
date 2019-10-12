@@ -122,7 +122,7 @@ func (cache *Cache) startExpirationProcessing() {
 	}
 }
 
-// Close calls purge, and then stops the goroutine that does ttl checking, for a clean shutdown.
+// Close calls Purge, and then stops the goroutine that does ttl checking, for a clean shutdown.
 // The cache is no longer cleaning up after the first call to Close, repeated calls are safe though.
 func (cache *Cache) Close() {
 	cache.mutex.Lock()
