@@ -23,6 +23,8 @@ type Cache struct {
 	expirationNotification chan bool
 	expirationTime         time.Time
 	skipTTLExtension       bool
+	shutdownSignal         chan (chan struct{})
+	isShutDown             bool
 }
 
 func (cache *Cache) getItem(key string) (*item, bool, bool) {
@@ -76,6 +78,10 @@ func (cache *Cache) startExpirationProcessing() {
 
 		timer.Reset(sleepTime)
 		select {
+		case shutdownFeedback := <-cache.shutdownSignal:
+			timer.Stop()
+			shutdownFeedback <- struct{}{}
+			return
 		case <-timer.C:
 			timer.Stop()
 			cache.mutex.Lock()
@@ -117,6 +123,24 @@ func (cache *Cache) startExpirationProcessing() {
 			continue
 		}
 	}
+}
+
+// Close calls Purge, and then stops the goroutine that does ttl checking, for a clean shutdown.
+// The cache is no longer cleaning up after the first call to Close, repeated calls are safe though.
+func (cache *Cache) Close() {
+
+	cache.mutex.Lock()
+	if !cache.isShutDown {
+		cache.isShutDown = true
+		cache.mutex.Unlock()
+		feedback := make(chan struct{})
+		cache.shutdownSignal <- feedback
+		<-feedback
+		close(cache.shutdownSignal)
+	} else {
+		cache.mutex.Unlock()
+	}
+	cache.Purge()
 }
 
 // Set is a thread-safe way to add new items to the map
@@ -236,11 +260,16 @@ func (cache *Cache) Purge() {
 
 // NewCache is a helper to create instance of the Cache struct
 func NewCache() *Cache {
+
+	shutdownChan := make(chan chan struct{})
+
 	cache := &Cache{
 		items:                  make(map[string]*item),
 		priorityQueue:          newPriorityQueue(),
 		expirationNotification: make(chan bool),
 		expirationTime:         time.Now(),
+		shutdownSignal:         shutdownChan,
+		isShutDown:             false,
 	}
 	go cache.startExpirationProcessing()
 	return cache
