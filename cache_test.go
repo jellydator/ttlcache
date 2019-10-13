@@ -8,7 +8,6 @@ import (
 	"go.uber.org/goleak"
 
 	"fmt"
-	"log"
 	"sync"
 
 	"github.com/stretchr/testify/assert"
@@ -170,7 +169,7 @@ func TestCache_SetCheckExpirationCallback(t *testing.T) {
 	cacheAD.SetTTL(time.Millisecond)
 	cacheAD.SetCheckExpirationCallback(func(key string, value interface{}) bool {
 		v := value.(*int)
-		log.Printf("key=%v, value=%d\n", key, *v)
+		t.Logf("key=%v, value=%d\n", key, *v)
 		iterated++
 		if iterated == 1 {
 			// this is the breaking test case for issue #14
@@ -202,12 +201,12 @@ func TestCache_SetExpirationCallback(t *testing.T) {
 
 	cache.SetTTL(time.Second * 1)
 	cache.SetExpirationCallback(func(key string, value interface{}) {
-		fmt.Printf("This key(%s) has expired\n", key)
+		t.Logf("This key(%s) has expired\n", key)
 	})
 	for i := 0; i < 1024; i++ {
 		cache.Set(fmt.Sprintf("item_%d", i), A{})
 		time.Sleep(time.Millisecond * 10)
-		fmt.Printf("Cache size: %d\n", cache.Count())
+		t.Logf("Cache size: %d\n", cache.Count())
 	}
 
 	if cache.Count() > 100 {
