@@ -14,5 +14,5 @@ install:
 
 script:
   - golint .
-  - go test -cover -race -count=1 -timeout=2m -run .
-  # - go test -run=Bench.* -bench=. -benchmem
+  - go test -cover -race -count=1 -timeout=30s -run .
+  - cd bench; go test -run=Bench.* -bench=. -benchmem

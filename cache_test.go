@@ -5,12 +5,18 @@ import (
 	"testing"
 	"time"
 
+	"go.uber.org/goleak"
+
 	"fmt"
 	"log"
 	"sync"
 
 	"github.com/stretchr/testify/assert"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 // Issue #23: Goroutine leak on closing. When adding a close method i would like to see
 // that it can be called in a repeated way without problems.
