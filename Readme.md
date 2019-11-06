@@ -38,7 +38,7 @@ func main () {
 	}
 
   cache := ttlcache.NewCache()
-  defer ttlcache.Close()
+  defer cache.Close()
   cache.SetTTL(time.Duration(10 * time.Second))
   cache.SetExpirationCallback(expirationCallback)
 
