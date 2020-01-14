@@ -9,6 +9,8 @@ TTLCache is a simple key/value cache in golang with the following functions:
 5. Can trigger callback on key expiration
 6. Cleanup resources by calling `Close()` at end of lifecycle.
 
+Note (issue #25): by default, due to historic reasons, the TTL will be reset on each cache hit and you need to explicitly configure the cache to use a TTL that will not get extended.
+
 [![Build Status](https://travis-ci.org/ReneKroon/ttlcache.svg?branch=master)](https://travis-ci.org/ReneKroon/ttlcache)
 
 #### Usage
@@ -63,7 +65,7 @@ TTLCache was forked from [wunderlist/ttlcache](https://github.com/wunderlist/ttl
 The main differences are:
 
 1. A item can store any kind of object, previously, only strings could be saved
-2. Optionally, you can add callbacks to: check if a value should expire, be notified if a value expires, and be notified when new values are added to the cache
+2. Optionally, you can add callbacks too: check if a value should expire, be notified if a value expires, and be notified when new values are added to the cache
 3. The expiration can be either global or per item
 4. Can exist items without expiration time
 5. Expirations and callbacks are realtime. Don't have a pooling time to check anymore, now it's done with a heap.
