@@ -17,6 +17,65 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
+// Issue #28: call expirationCallback automatically on cache.Close()
+func TestCache_ExpirationOnClose(t *testing.T) {
+
+	cache := NewCache()
+
+	success := make(chan struct{})
+	defer close(success)
+
+	cache.SetTTL(time.Hour * 100)
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		t.Logf("%s\t%v", key, value)
+		success <- struct{}{}
+	})
+	cache.Set("1", 1)
+	cache.Set("2", 1)
+	cache.Set("3", 1)
+
+	found := 0
+	cache.Close()
+	wait := time.NewTimer(time.Millisecond * 100)
+	for found != 3 {
+		select {
+		case <-success:
+			found++
+		case <-wait.C:
+			t.Fail()
+		}
+	}
+
+}
+
+// # Issue 29: After Close() the behaviour of Get, Set, Remove is not defined.
+/*
+func TestCache_ModifyAfterClose(t *testing.T) {
+	cache := NewCache()
+
+	cache.SetTTL(time.Hour * 100)
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		t.Logf("%s\t%v", key, value)
+	})
+	cache.Set("1", 1)
+	cache.Set("2", 1)
+	cache.Set("3", 1)
+
+	cache.Close()
+
+	cache.Get("broken3")
+	cache.Set("broken", 1)
+	cache.Remove("broken2")
+
+	wait := time.NewTimer(time.Millisecond * 100)
+
+	select {
+	case <-wait.C:
+		t.Fail()
+	}
+
+}*/
+
 // Issue #23: Goroutine leak on closing. When adding a close method i would like to see
 // that it can be called in a repeated way without problems.
 func TestCache_MultipleCloseCalls(t *testing.T) {

@@ -80,6 +80,11 @@ func (cache *Cache) startExpirationProcessing() {
 		select {
 		case shutdownFeedback := <-cache.shutdownSignal:
 			timer.Stop()
+			cache.mutex.Lock()
+			if cache.priorityQueue.Len() > 0 {
+				cache.evictjob()
+			}
+			cache.mutex.Unlock()
 			shutdownFeedback <- struct{}{}
 			return
 		case <-timer.C:
@@ -90,37 +95,56 @@ func (cache *Cache) startExpirationProcessing() {
 				continue
 			}
 
-			// index will only be advanced if the current entry will not be evicted
-			i := 0
-			for item := cache.priorityQueue.items[i]; item.expired(); item = cache.priorityQueue.items[i] {
-
-				if cache.checkExpireCallback != nil {
-					if !cache.checkExpireCallback(item.key, item.data) {
-						item.touch()
-						cache.priorityQueue.update(item)
-						i++
-						if i == cache.priorityQueue.Len() {
-							break
-						}
-						continue
-					}
-				}
-
-				cache.priorityQueue.remove(item)
-				delete(cache.items, item.key)
-				if cache.expireCallback != nil {
-					go cache.expireCallback(item.key, item.data)
-				}
-				if cache.priorityQueue.Len() == 0 {
-					goto done
-				}
-			}
-		done:
+			cache.cleanjob()
 			cache.mutex.Unlock()
 
 		case <-cache.expirationNotification:
 			timer.Stop()
 			continue
+		}
+	}
+}
+
+func (cache *Cache) evictjob() {
+	// index will only be advanced if the current entry will not be evicted
+	i := 0
+	for item := cache.priorityQueue.items[i]; ; item = cache.priorityQueue.items[i] {
+
+		cache.priorityQueue.remove(item)
+		delete(cache.items, item.key)
+		if cache.expireCallback != nil {
+			go cache.expireCallback(item.key, item.data)
+		}
+		if cache.priorityQueue.Len() == 0 {
+			return
+		}
+	}
+}
+
+func (cache *Cache) cleanjob() {
+	// index will only be advanced if the current entry will not be evicted
+	i := 0
+	for item := cache.priorityQueue.items[i]; item.expired(); item = cache.priorityQueue.items[i] {
+
+		if cache.checkExpireCallback != nil {
+			if !cache.checkExpireCallback(item.key, item.data) {
+				item.touch()
+				cache.priorityQueue.update(item)
+				i++
+				if i == cache.priorityQueue.Len() {
+					break
+				}
+				continue
+			}
+		}
+
+		cache.priorityQueue.remove(item)
+		delete(cache.items, item.key)
+		if cache.expireCallback != nil {
+			go cache.expireCallback(item.key, item.data)
+		}
+		if cache.priorityQueue.Len() == 0 {
+			return
 		}
 	}
 }
