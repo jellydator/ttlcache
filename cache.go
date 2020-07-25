@@ -249,7 +249,7 @@ func (cache *Cache) Get(key string) (interface{}, error) {
 		if cache.loaderFunction != nil {
 			var ttl time.Duration
 			dataToReturn, ttl, err = cache.loaderFunction(key)
-			if err != nil {
+			if err == nil {
 				err = cache.SetWithTTL(key, dataToReturn, ttl)
 				if err != nil {
 					dataToReturn = nil
