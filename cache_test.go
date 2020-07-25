@@ -49,7 +49,7 @@ func TestCache_ExpirationOnClose(t *testing.T) {
 }
 
 // # Issue 29: After Close() the behaviour of Get, Set, Remove is not defined.
-/*
+
 func TestCache_ModifyAfterClose(t *testing.T) {
 	cache := NewCache()
 
@@ -61,20 +61,25 @@ func TestCache_ModifyAfterClose(t *testing.T) {
 	cache.Set("2", 1)
 	cache.Set("3", 1)
 
+	_, findErr := cache.Get("1")
+	assert.Equal(t, nil, findErr)
+	assert.Equal(t, nil, cache.Set("broken", 1))
+	assert.Equal(t, ErrNotFound, cache.Remove("broken2"))
+	assert.Equal(t, nil, cache.Purge())
+	assert.Equal(t, nil, cache.SetWithTTL("broken", 2, time.Minute))
+	assert.Equal(t, nil, cache.SetTTL(time.Hour))
+
 	cache.Close()
 
-	cache.Get("broken3")
-	cache.Set("broken", 1)
-	cache.Remove("broken2")
+	_, getErr := cache.Get("broken3")
+	assert.Equal(t, ErrClosed, getErr)
+	assert.Equal(t, ErrClosed, cache.Set("broken", 1))
+	assert.Equal(t, ErrClosed, cache.Remove("broken2"))
+	assert.Equal(t, ErrClosed, cache.Purge())
+	assert.Equal(t, ErrClosed, cache.SetWithTTL("broken", 2, time.Minute))
+	assert.Equal(t, ErrClosed, cache.SetTTL(time.Hour))
 
-	wait := time.NewTimer(time.Millisecond * 100)
-
-	select {
-	case <-wait.C:
-		t.Fail()
-	}
-
-}*/
+}
 
 // Issue #23: Goroutine leak on closing. When adding a close method i would like to see
 // that it can be called in a repeated way without problems.
@@ -83,20 +88,18 @@ func TestCache_MultipleCloseCalls(t *testing.T) {
 
 	cache.SetTTL(time.Millisecond * 100)
 
-	cache.SkipTtlExtensionOnHit(false)
+	cache.SkipTTLExtensionOnHit(false)
 	cache.Set("test", "!")
 	startTime := time.Now()
 	for now := time.Now(); now.Before(startTime.Add(time.Second * 3)); now = time.Now() {
-		if _, found := cache.Get("test"); !found {
+		if _, err := cache.Get("test"); err != nil {
 			t.Errorf("Item was not found, even though it should not expire.")
 		}
 
 	}
 
 	cache.Close()
-	cache.Close()
-	cache.Close()
-	cache.Close()
+	assert.Equal(t, ErrClosed, cache.Close())
 }
 
 // test for Feature request in issue #12
@@ -107,20 +110,20 @@ func TestCache_SkipTtlExtensionOnHit(t *testing.T) {
 
 	cache.SetTTL(time.Millisecond * 100)
 
-	cache.SkipTtlExtensionOnHit(false)
+	cache.SkipTTLExtensionOnHit(false)
 	cache.Set("test", "!")
 	startTime := time.Now()
 	for now := time.Now(); now.Before(startTime.Add(time.Second * 3)); now = time.Now() {
-		if _, found := cache.Get("test"); !found {
+		if _, err := cache.Get("test"); err != nil {
 			t.Errorf("Item was not found, even though it should not expire.")
 		}
 
 	}
 
-	cache.SkipTtlExtensionOnHit(true)
+	cache.SkipTTLExtensionOnHit(true)
 	cache.Set("expireTest", "!")
 	// will loop if item does not expire
-	for _, found := cache.Get("expireTest"); found; _, found = cache.Get("expireTest") {
+	for _, err := cache.Get("expireTest"); err == nil; _, err = cache.Get("expireTest") {
 	}
 }
 
@@ -129,7 +132,7 @@ func TestCache_ForRacesAcrossGoroutines(t *testing.T) {
 	defer cache.Close()
 
 	cache.SetTTL(time.Minute * 1)
-	cache.SkipTtlExtensionOnHit(false)
+	cache.SkipTTLExtensionOnHit(false)
 
 	var wgSet sync.WaitGroup
 	var wgGet sync.WaitGroup
@@ -175,7 +178,7 @@ func TestCache_SkipTtlExtensionOnHit_ForRacesAcrossGoroutines(t *testing.T) {
 	defer cache.Close()
 
 	cache.SetTTL(time.Minute * 1)
-	cache.SkipTtlExtensionOnHit(true)
+	cache.SkipTTLExtensionOnHit(true)
 
 	var wgSet sync.WaitGroup
 	var wgGet sync.WaitGroup
@@ -297,8 +300,8 @@ func TestRemovalWithTtlDoesNotPanic(t *testing.T) {
 	cache.Set("key", "value")
 	cache.Remove("key")
 
-	value, exists := cache.Get("keyWithTTL")
-	if exists {
+	value, err := cache.Get("keyWithTTL")
+	if err == nil {
 		t.Logf("got %s for keyWithTTL\n", value)
 	}
 	count := cache.Count()
@@ -306,8 +309,8 @@ func TestRemovalWithTtlDoesNotPanic(t *testing.T) {
 
 	<-time.After(3 * time.Second)
 
-	value, exists = cache.Get("keyWithTTL")
-	if exists {
+	value, err = cache.Get("keyWithTTL")
+	if err != nil {
 		t.Logf("got %s for keyWithTTL\n", value)
 	} else {
 		t.Logf("keyWithTTL has gone")
@@ -324,7 +327,7 @@ func TestCacheIndividualExpirationBiggerThanGlobal(t *testing.T) {
 	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
 	<-time.After(150 * time.Millisecond)
 	data, exists := cache.Get("key")
-	assert.Equal(t, exists, false, "Expected item to not exist")
+	assert.Equal(t, exists, ErrNotFound, "Expected item to not exist")
 	assert.Nil(t, data, "Expected item to be nil")
 }
 
@@ -335,17 +338,17 @@ func TestCacheGlobalExpirationByGlobal(t *testing.T) {
 	cache.Set("key", "value")
 	<-time.After(50 * time.Millisecond)
 	data, exists := cache.Get("key")
-	assert.Equal(t, exists, true, "Expected item to exist in cache")
+	assert.Equal(t, exists, nil, "Expected item to exist in cache")
 	assert.Equal(t, data.(string), "value", "Expected item to have 'value' in value")
 
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	data, exists = cache.Get("key")
-	assert.Equal(t, exists, true, "Expected item to exist in cache")
+	assert.Equal(t, exists, nil, "Expected item to exist in cache")
 	assert.Equal(t, data.(string), "value", "Expected item to have 'value' in value")
 
 	<-time.After(100 * time.Millisecond)
 	data, exists = cache.Get("key")
-	assert.Equal(t, exists, false, "Expected item to not exist")
+	assert.Equal(t, exists, ErrNotFound, "Expected item to not exist")
 	assert.Nil(t, data, "Expected item to be nil")
 }
 
@@ -398,13 +401,13 @@ func TestCacheGet(t *testing.T) {
 	defer cache.Close()
 
 	data, exists := cache.Get("hello")
-	assert.Equal(t, exists, false, "Expected empty cache to return no data")
+	assert.Equal(t, exists, ErrNotFound, "Expected empty cache to return no data")
 	assert.Nil(t, data, "Expected data to be empty")
 
 	cache.Set("hello", "world")
 	data, exists = cache.Get("hello")
 	assert.NotNil(t, data, "Expected data to be not nil")
-	assert.Equal(t, true, exists, "Expected data to exist")
+	assert.Equal(t, nil, exists, "Expected data to exist")
 	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
 }
 
@@ -439,7 +442,7 @@ func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 	cache := NewCache()
 	defer cache.Close()
 
-	cache.SkipTtlExtensionOnHit(true)
+	cache.SkipTTLExtensionOnHit(true)
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	cache.SetCheckExpirationCallback(func(key string, value interface{}) bool {
 		if key == "key2" || key == "key4" {
@@ -489,8 +492,8 @@ func TestCacheRemove(t *testing.T) {
 	<-time.After(70 * time.Millisecond)
 	removeKey := cache.Remove("key")
 	removeKey2 := cache.Remove("key_2")
-	assert.Equal(t, true, removeKey, "Expected 'key' to be removed from cache")
-	assert.Equal(t, false, removeKey2, "Expected 'key_2' to already be expired from cache")
+	assert.Equal(t, nil, removeKey, "Expected 'key' to be removed from cache")
+	assert.Equal(t, ErrNotFound, removeKey2, "Expected 'key_2' to already be expired from cache")
 }
 
 func TestCacheSetWithTTLExistItem(t *testing.T) {
@@ -502,7 +505,7 @@ func TestCacheSetWithTTLExistItem(t *testing.T) {
 	<-time.After(30 * time.Millisecond)
 	cache.SetWithTTL("key", "value2", time.Duration(50*time.Millisecond))
 	data, exists := cache.Get("key")
-	assert.Equal(t, true, exists, "Expected 'key' to exist")
+	assert.Equal(t, nil, exists, "Expected 'key' to exist")
 	assert.Equal(t, "value2", data.(string), "Expected 'data' to have value 'value2'")
 }
 
