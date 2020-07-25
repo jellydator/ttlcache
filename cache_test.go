@@ -17,6 +17,49 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
+// Issue #31: loader function
+func TestCache_TestLoaderFunction(t *testing.T) {
+	cache := NewCache()
+
+	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
+		return nil, 0, ErrNotFound
+	})
+
+	_, err := cache.Get("1")
+	assert.Equal(t, ErrNotFound, err)
+
+	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
+		return "1", 0, nil
+	})
+
+	value, found := cache.Get("1")
+	assert.Equal(t, nil, found)
+	assert.Equal(t, "1", value)
+
+	cache.Close()
+
+	value, found = cache.Get("1")
+	assert.Equal(t, ErrClosed, found)
+	assert.Equal(t, nil, value)
+}
+
+// Issue #31: edge case where cache is closed when loader function has completed
+func TestCache_TestLoaderFunctionDuringClose(t *testing.T) {
+	cache := NewCache()
+
+	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
+		cache.Close()
+		return "1", 0, nil
+	})
+
+	value, found := cache.Get("1")
+	assert.Equal(t, ErrClosed, found)
+	assert.Equal(t, nil, value)
+
+	cache.Close()
+
+}
+
 // Issue #28: call expirationCallback automatically on cache.Close()
 func TestCache_ExpirationOnClose(t *testing.T) {
 
@@ -78,6 +121,7 @@ func TestCache_ModifyAfterClose(t *testing.T) {
 	assert.Equal(t, ErrClosed, cache.Purge())
 	assert.Equal(t, ErrClosed, cache.SetWithTTL("broken", 2, time.Minute))
 	assert.Equal(t, ErrClosed, cache.SetTTL(time.Hour))
+	assert.Equal(t, 0, cache.Count())
 
 }
 
