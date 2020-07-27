@@ -261,7 +261,7 @@ func (cache *Cache) Get(key string) (interface{}, error) {
 	return dataToReturn, err
 }
 
-// Remove removes an item from the cache if it exists. Can return ErrNotFound if the entry was not present.
+// Remove removes an item from the cache if it exists, triggers expiration callback when set. Can return ErrNotFound if the entry was not present.
 func (cache *Cache) Remove(key string) error {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
