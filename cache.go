@@ -7,29 +7,29 @@ import (
 )
 
 // CheckExpireCallback is used as a callback for an external check on item expiration
-type checkExpireCallback func(key string, value interface{}) bool
+type CheckExpireCallback func(key string, value interface{}) bool
 
 // ExpireCallback is used as a callback on item expiration or when notifying of an item new to the cache
-type expireCallback func(key string, value interface{})
+type ExpireCallback func(key string, value interface{})
 
 // LoaderFunction can be supplied to retrieve an item where a cache miss occurs. Supply an item specific ttl or Duration.Zero
-type loaderFunction func(key string) (data interface{}, ttl time.Duration, err error)
+type LoaderFunction func(key string) (data interface{}, ttl time.Duration, err error)
 
 // Cache is a synchronized map of items that can auto-expire once stale
 type Cache struct {
 	mutex                  sync.Mutex
 	ttl                    time.Duration
 	items                  map[string]*item
-	expireCallback         expireCallback
-	checkExpireCallback    checkExpireCallback
-	newItemCallback        expireCallback
+	expireCallback         ExpireCallback
+	checkExpireCallback    CheckExpireCallback
+	newItemCallback        ExpireCallback
 	priorityQueue          *priorityQueue
 	expirationNotification chan bool
 	expirationTime         time.Time
 	skipTTLExtension       bool
 	shutdownSignal         chan (chan struct{})
 	isShutDown             bool
-	loaderFunction         loaderFunction
+	loaderFunction         LoaderFunction
 }
 
 var (
@@ -305,18 +305,18 @@ func (cache *Cache) SetTTL(ttl time.Duration) error {
 }
 
 // SetExpirationCallback sets a callback that will be called when an item expires
-func (cache *Cache) SetExpirationCallback(callback expireCallback) {
+func (cache *Cache) SetExpirationCallback(callback ExpireCallback) {
 	cache.expireCallback = callback
 }
 
 // SetCheckExpirationCallback sets a callback that will be called when an item is about to expire
 // in order to allow external code to decide whether the item expires or remains for another TTL cycle
-func (cache *Cache) SetCheckExpirationCallback(callback checkExpireCallback) {
+func (cache *Cache) SetCheckExpirationCallback(callback CheckExpireCallback) {
 	cache.checkExpireCallback = callback
 }
 
 // SetNewItemCallback sets a callback that will be called when a new item is added to the cache
-func (cache *Cache) SetNewItemCallback(callback expireCallback) {
+func (cache *Cache) SetNewItemCallback(callback ExpireCallback) {
 	cache.newItemCallback = callback
 }
 
@@ -328,7 +328,7 @@ func (cache *Cache) SkipTTLExtensionOnHit(value bool) {
 }
 
 // SetLoaderFunction allows you to set a function to retrieve cache misses. The signature matches that of the Get function.
-func (cache *Cache) SetLoaderFunction(loader loaderFunction) {
+func (cache *Cache) SetLoaderFunction(loader LoaderFunction) {
 	cache.loaderFunction = loader
 }
 
