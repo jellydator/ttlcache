@@ -1,4 +1,4 @@
-package ttlcache
+package ttlcache_test
 
 import (
 	"math/rand"
@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"sync"
 
+	. "github.com/ReneKroon/ttlcache/v2"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -23,10 +24,11 @@ func TestCache_TestRemovalTriggersCallback(t *testing.T) {
 	defer cache.Close()
 
 	var sync = make(chan struct{})
-	cache.expireCallback = func(key string, data interface{}) {
+	expiration := func(key string, data interface{}) {
 
 		sync <- struct{}{}
 	}
+	cache.SetExpirationCallback(expiration)
 
 	cache.Set("1", "barf")
 	cache.Remove("1")
@@ -422,7 +424,7 @@ func TestCacheGlobalExpiration(t *testing.T) {
 	cache.Set("key_2", "value")
 	<-time.After(200 * time.Millisecond)
 	assert.Equal(t, 0, cache.Count(), "Cache should be empty")
-	assert.Equal(t, 0, cache.priorityQueue.Len(), "PriorityQueue should be empty")
+
 }
 
 func TestCacheMixedExpirations(t *testing.T) {
