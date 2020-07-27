@@ -117,16 +117,20 @@ func (cache *Cache) startExpirationProcessing() {
 	}
 }
 
+func (cache *Cache) removeItem(item *item) {
+	cache.priorityQueue.remove(item)
+	delete(cache.items, item.key)
+	if cache.expireCallback != nil {
+		go cache.expireCallback(item.key, item.data)
+	}
+}
+
 func (cache *Cache) evictjob() {
 	// index will only be advanced if the current entry will not be evicted
 	i := 0
 	for item := cache.priorityQueue.items[i]; ; item = cache.priorityQueue.items[i] {
 
-		cache.priorityQueue.remove(item)
-		delete(cache.items, item.key)
-		if cache.expireCallback != nil {
-			go cache.expireCallback(item.key, item.data)
-		}
+		cache.removeItem(item)
 		if cache.priorityQueue.Len() == 0 {
 			return
 		}
@@ -150,11 +154,7 @@ func (cache *Cache) cleanjob() {
 			}
 		}
 
-		cache.priorityQueue.remove(item)
-		delete(cache.items, item.key)
-		if cache.expireCallback != nil {
-			go cache.expireCallback(item.key, item.data)
-		}
+		cache.removeItem(item)
 		if cache.priorityQueue.Len() == 0 {
 			return
 		}
@@ -273,8 +273,7 @@ func (cache *Cache) Remove(key string) error {
 	if !exists {
 		return ErrNotFound
 	}
-	delete(cache.items, object.key)
-	cache.priorityQueue.remove(object)
+	cache.removeItem(object)
 
 	return nil
 }
