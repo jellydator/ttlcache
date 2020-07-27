@@ -17,6 +17,23 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
+// Issue #30: Removal does not use expiration callback.
+func TestCache_TestRemovalTriggersCallback(t *testing.T) {
+	cache := NewCache()
+	defer cache.Close()
+
+	var sync = make(chan struct{})
+	cache.expireCallback = func(key string, data interface{}) {
+
+		sync <- struct{}{}
+	}
+
+	cache.Set("1", "barf")
+	cache.Remove("1")
+
+	<-sync
+}
+
 // Issue #31: loader function
 func TestCache_TestLoaderFunction(t *testing.T) {
 	cache := NewCache()
