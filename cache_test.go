@@ -2,6 +2,7 @@ package ttlcache_test
 
 import (
 	"math/rand"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +17,35 @@ import (
 
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
+}
+
+// Issue #31: Test that a single fetch is executed with the loader function
+func TestCache_TestSingleFetch(t *testing.T) {
+	cache := NewCache()
+	defer cache.Close()
+
+	var calls int32
+
+	loader := func(key string) (data interface{}, ttl time.Duration, err error) {
+		time.Sleep(time.Millisecond*100)
+		atomic.AddInt32(&calls, 1)
+		return "data", 0, nil
+
+	}
+
+	cache.SetLoaderFunction(loader)
+	wg := sync.WaitGroup{}
+
+	for i := 0; i < 1000; i++ {
+		wg.Add(1)
+		go func() {
+			cache.Get("1")
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
+	assert.Equal(t, int32(1), calls)
 }
 
 // Issue #30: Removal does not use expiration callback.
