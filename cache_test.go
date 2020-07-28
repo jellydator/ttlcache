@@ -21,13 +21,14 @@ func TestMain(m *testing.M) {
 
 // Issue #31: Test that a single fetch is executed with the loader function
 func TestCache_TestSingleFetch(t *testing.T) {
+	t.Parallel()
 	cache := NewCache()
 	defer cache.Close()
 
 	var calls int32
 
 	loader := func(key string) (data interface{}, ttl time.Duration, err error) {
-		time.Sleep(time.Millisecond*100)
+		time.Sleep(time.Millisecond * 100)
 		atomic.AddInt32(&calls, 1)
 		return "data", 0, nil
 
@@ -50,6 +51,7 @@ func TestCache_TestSingleFetch(t *testing.T) {
 
 // Issue #30: Removal does not use expiration callback.
 func TestCache_TestRemovalTriggersCallback(t *testing.T) {
+	t.Parallel()
 	cache := NewCache()
 	defer cache.Close()
 
@@ -68,6 +70,7 @@ func TestCache_TestRemovalTriggersCallback(t *testing.T) {
 
 // Issue #31: loader function
 func TestCache_TestLoaderFunction(t *testing.T) {
+	t.Parallel()
 	cache := NewCache()
 
 	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
@@ -94,6 +97,7 @@ func TestCache_TestLoaderFunction(t *testing.T) {
 
 // Issue #31: edge case where cache is closed when loader function has completed
 func TestCache_TestLoaderFunctionDuringClose(t *testing.T) {
+	t.Parallel()
 	cache := NewCache()
 
 	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
@@ -111,7 +115,7 @@ func TestCache_TestLoaderFunctionDuringClose(t *testing.T) {
 
 // Issue #28: call expirationCallback automatically on cache.Close()
 func TestCache_ExpirationOnClose(t *testing.T) {
-
+	t.Parallel()
 	cache := NewCache()
 
 	success := make(chan struct{})
@@ -143,6 +147,7 @@ func TestCache_ExpirationOnClose(t *testing.T) {
 // # Issue 29: After Close() the behaviour of Get, Set, Remove is not defined.
 
 func TestCache_ModifyAfterClose(t *testing.T) {
+	t.Parallel()
 	cache := NewCache()
 
 	cache.SetTTL(time.Hour * 100)
@@ -177,6 +182,7 @@ func TestCache_ModifyAfterClose(t *testing.T) {
 // Issue #23: Goroutine leak on closing. When adding a close method i would like to see
 // that it can be called in a repeated way without problems.
 func TestCache_MultipleCloseCalls(t *testing.T) {
+	t.Parallel()
 	cache := NewCache()
 
 	cache.SetTTL(time.Millisecond * 100)
@@ -198,6 +204,8 @@ func TestCache_MultipleCloseCalls(t *testing.T) {
 // test for Feature request in issue #12
 //
 func TestCache_SkipTtlExtensionOnHit(t *testing.T) {
+	t.Parallel()
+
 	cache := NewCache()
 	defer cache.Close()
 
@@ -221,6 +229,8 @@ func TestCache_SkipTtlExtensionOnHit(t *testing.T) {
 }
 
 func TestCache_ForRacesAcrossGoroutines(t *testing.T) {
+	t.Parallel()
+
 	cache := NewCache()
 	defer cache.Close()
 
@@ -315,6 +325,8 @@ func TestCache_SkipTtlExtensionOnHit_ForRacesAcrossGoroutines(t *testing.T) {
 // test github issue #14
 // Testing expiration callback would continue with the next item in list, even when it exceeds list lengths
 func TestCache_SetCheckExpirationCallback(t *testing.T) {
+	t.Parallel()
+
 	iterated := 0
 	ch := make(chan struct{})
 
@@ -346,6 +358,7 @@ func TestCache_SetCheckExpirationCallback(t *testing.T) {
 // Which is not right when we become negative due to scheduling.
 // This test could use improvement as it's not requiring a lot of time to trigger.
 func TestCache_SetExpirationCallback(t *testing.T) {
+	t.Parallel()
 
 	type A struct {
 	}
@@ -371,6 +384,8 @@ func TestCache_SetExpirationCallback(t *testing.T) {
 
 // test github issue #4
 func TestRemovalAndCountDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
 	cache := NewCache()
 	defer cache.Close()
 
@@ -382,6 +397,8 @@ func TestRemovalAndCountDoesNotPanic(t *testing.T) {
 
 // test github issue #3
 func TestRemovalWithTtlDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
 	cache := NewCache()
 	defer cache.Close()
 
@@ -413,6 +430,8 @@ func TestRemovalWithTtlDoesNotPanic(t *testing.T) {
 }
 
 func TestCacheIndividualExpirationBiggerThanGlobal(t *testing.T) {
+	t.Parallel()
+
 	cache := NewCache()
 	defer cache.Close()
 
@@ -425,6 +444,8 @@ func TestCacheIndividualExpirationBiggerThanGlobal(t *testing.T) {
 }
 
 func TestCacheGlobalExpirationByGlobal(t *testing.T) {
+	t.Parallel()
+
 	cache := NewCache()
 	defer cache.Close()
 
@@ -446,6 +467,8 @@ func TestCacheGlobalExpirationByGlobal(t *testing.T) {
 }
 
 func TestCacheGlobalExpiration(t *testing.T) {
+	t.Parallel()
+
 	cache := NewCache()
 	defer cache.Close()
 
@@ -458,6 +481,8 @@ func TestCacheGlobalExpiration(t *testing.T) {
 }
 
 func TestCacheMixedExpirations(t *testing.T) {
+	t.Parallel()
+
 	cache := NewCache()
 	defer cache.Close()
 
@@ -472,6 +497,8 @@ func TestCacheMixedExpirations(t *testing.T) {
 }
 
 func TestCacheIndividualExpiration(t *testing.T) {
+	t.Parallel()
+
 	cache := NewCache()
 	defer cache.Close()
 
@@ -490,6 +517,8 @@ func TestCacheIndividualExpiration(t *testing.T) {
 }
 
 func TestCacheGet(t *testing.T) {
+	t.Parallel()
+
 	cache := NewCache()
 	defer cache.Close()
 
@@ -505,6 +534,8 @@ func TestCacheGet(t *testing.T) {
 }
 
 func TestCacheExpirationCallbackFunction(t *testing.T) {
+	t.Parallel()
+
 	expiredCount := 0
 	var lock sync.Mutex
 
@@ -529,6 +560,8 @@ func TestCacheExpirationCallbackFunction(t *testing.T) {
 // TestCacheCheckExpirationCallbackFunction should consider that the next entry in the queue
 // needs to be considered for eviction even if the callback returns no eviction for the current item
 func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
+	t.Parallel()
+
 	expiredCount := 0
 	var lock sync.Mutex
 
@@ -560,6 +593,8 @@ func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 }
 
 func TestCacheNewItemCallbackFunction(t *testing.T) {
+	t.Parallel()
+
 	newItemCount := 0
 	cache := NewCache()
 	defer cache.Close()
@@ -576,6 +611,8 @@ func TestCacheNewItemCallbackFunction(t *testing.T) {
 }
 
 func TestCacheRemove(t *testing.T) {
+	t.Parallel()
+
 	cache := NewCache()
 	defer cache.Close()
 
@@ -590,6 +627,8 @@ func TestCacheRemove(t *testing.T) {
 }
 
 func TestCacheSetWithTTLExistItem(t *testing.T) {
+	t.Parallel()
+
 	cache := NewCache()
 	defer cache.Close()
 
@@ -603,6 +642,8 @@ func TestCacheSetWithTTLExistItem(t *testing.T) {
 }
 
 func TestCache_Purge(t *testing.T) {
+	t.Parallel()
+
 	cache := NewCache()
 	defer cache.Close()
 
