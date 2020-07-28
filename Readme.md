@@ -3,7 +3,7 @@
 TTLCache is a simple key/value cache in golang with the following functions:
 
 1. Expiration of items based on time, or custom function
-2. Loader function to retrieve missing keys can be provided
+2. Loader function to retrieve missing keys can be provided. Additional `Get` calls on the same key block while fetching is in progress (groupcache style). 
 3. Individual expiring time or global expiring time, you can choose
 4. Auto-Extending expiration on `Get` -or- DNS style TTL, see `SkipTTLExtensionOnHit(bool)`
 5. Can trigger callback on key expiration
