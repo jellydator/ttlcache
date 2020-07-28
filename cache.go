@@ -366,6 +366,7 @@ func (cache *Cache) SkipTTLExtensionOnHit(value bool) {
 }
 
 // SetLoaderFunction allows you to set a function to retrieve cache misses. The signature matches that of the Get function.
+// Additional Get calls on the same key block while fetching is in progress (groupcache style).
 func (cache *Cache) SetLoaderFunction(loader LoaderFunction) {
 	cache.loaderFunction = loader
 }
