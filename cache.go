@@ -176,11 +176,11 @@ func (cache *Cache) Close() error {
 		cache.shutdownSignal <- feedback
 		<-feedback
 		close(cache.shutdownSignal)
+		cache.Purge()
 	} else {
 		cache.mutex.Unlock()
 		return ErrClosed
 	}
-	cache.Purge()
 	return nil
 }
 

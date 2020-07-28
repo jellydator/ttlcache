@@ -367,9 +367,11 @@ func TestCache_SetExpirationCallback(t *testing.T) {
 	cache := NewCache()
 	defer cache.Close()
 
+	ch := make(chan struct{}, 1024)
 	cache.SetTTL(time.Second * 1)
 	cache.SetExpirationCallback(func(key string, value interface{}) {
 		t.Logf("This key(%s) has expired\n", key)
+		ch <- struct{}{}
 	})
 	for i := 0; i < 1024; i++ {
 		cache.Set(fmt.Sprintf("item_%d", i), A{})
@@ -379,6 +381,12 @@ func TestCache_SetExpirationCallback(t *testing.T) {
 
 	if cache.Count() > 100 {
 		t.Fatal("Cache should empty entries >1 second old")
+	}
+
+	expired := 0
+	for expired != 1024 {
+		<- ch
+		expired++
 	}
 }
 
