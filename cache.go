@@ -119,11 +119,12 @@ func (cache *Cache) startExpirationProcessing() {
 }
 
 func (cache *Cache) removeItem(item *item) {
+	cache.priorityQueue.remove(item)
+	delete(cache.items, item.key)
 	if cache.expireCallback != nil {
 		go cache.expireCallback(item.key, item.data)
 	}
-	cache.priorityQueue.remove(item)
-	delete(cache.items, item.key)
+
 
 }
 
