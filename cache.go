@@ -20,6 +20,7 @@ type Cache struct {
 	mutex                  sync.Mutex
 	ttl                    time.Duration
 	items                  map[string]*item
+	loaderLock             map[string]*sync.Cond
 	expireCallback         ExpireCallback
 	checkExpireCallback    CheckExpireCallback
 	newItemCallback        ExpireCallback
@@ -239,25 +240,61 @@ func (cache *Cache) Get(key string) (interface{}, error) {
 	if exists {
 		dataToReturn = item.data
 	}
-	cache.mutex.Unlock()
-	if triggerExpirationNotification {
-		cache.expirationNotification <- true
-	}
+
 	var err error = nil
 	if !exists {
 		err = ErrNotFound
+	}
+	if cache.loaderFunction == nil || exists {
+		cache.mutex.Unlock()
+	}
 
-		if cache.loaderFunction != nil {
-			var ttl time.Duration
-			dataToReturn, ttl, err = cache.loaderFunction(key)
-			if err == nil {
-				err = cache.SetWithTTL(key, dataToReturn, ttl)
-				if err != nil {
-					dataToReturn = nil
-				}
+	if cache.loaderFunction != nil && !exists {
+		if lock, ok := cache.loaderLock[key]; ok {
+			// if a lock is present then a fetch is in progress and we wait.
+			cache.mutex.Unlock()
+			lock.L.Lock()
+			lock.Wait()
+			lock.L.Unlock()
+			cache.mutex.Lock()
+			item, exists, triggerExpirationNotification = cache.getItem(key)
+			if exists {
+				dataToReturn = item.data
+				err = nil
 			}
+			cache.mutex.Unlock()
+		} else {
+			// if no lock is present we are the leader and should set the lock and fetch.
+			m := sync.NewCond(&sync.Mutex{})
+			cache.loaderLock[key] = m
+			cache.mutex.Unlock()
+			// cache is not blocked during IO
+			dataToReturn, err = cache.invokeLoader(key)
+			cache.mutex.Lock()
+			m.Broadcast()
+			// cleanup so that we don't block consecutive access.
+			delete(cache.loaderLock, key)
+			cache.mutex.Unlock()
 		}
 
+	}
+
+	if triggerExpirationNotification {
+		cache.expirationNotification <- true
+	}
+
+	return dataToReturn, err
+}
+
+func (cache *Cache) invokeLoader(key string) (dataToReturn interface{}, err error) {
+	var ttl time.Duration
+
+	dataToReturn, ttl, err = cache.loaderFunction(key)
+	if err == nil {
+		err = cache.SetWithTTL(key, dataToReturn, ttl)
+		if err != nil {
+			dataToReturn = nil
+		}
 	}
 	return dataToReturn, err
 }
@@ -352,6 +389,7 @@ func NewCache() *Cache {
 
 	cache := &Cache{
 		items:                  make(map[string]*item),
+		loaderLock:             make(map[string]*sync.Cond),
 		priorityQueue:          newPriorityQueue(),
 		expirationNotification: make(chan bool),
 		expirationTime:         time.Now(),
