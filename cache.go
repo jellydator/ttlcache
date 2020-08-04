@@ -241,7 +241,7 @@ func (cache *Cache) Get(key string) (interface{}, error) {
 		dataToReturn = item.data
 	}
 
-	var err error = nil
+	var err error
 	if !exists {
 		err = ErrNotFound
 	}

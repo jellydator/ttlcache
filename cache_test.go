@@ -385,7 +385,7 @@ func TestCache_SetExpirationCallback(t *testing.T) {
 
 	expired := 0
 	for expired != 1024 {
-		<- ch
+		<-ch
 		expired++
 	}
 }
