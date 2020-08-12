@@ -21,7 +21,7 @@ import (
   "time"
   "fmt"
 
-  "github.com/ReneKroon/ttlcache"
+  "github.com/ReneKroon/ttlcache/v2"
 )
 
 func main () {
