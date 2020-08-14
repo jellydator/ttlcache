@@ -14,52 +14,72 @@ Note (issue #25): by default, due to historic reasons, the TTL will be reset on 
 
 [![Build Status](https://travis-ci.org/ReneKroon/ttlcache.svg?branch=master)](https://travis-ci.org/ReneKroon/ttlcache)
 
-## Usage
+## Usage 
+
+You can copy it as a full standalone demo program.
 
 ```go
-import (
-  "time"
-  "fmt"
+package main
 
-  "github.com/ReneKroon/ttlcache/v2"
+import (
+	"fmt"
+	"time"
+
+	"github.com/ReneKroon/ttlcache/v2"
 )
 
-func main () {
-  newItemCallback := func(key string, value interface{}) {
-    fmt.Printf("New key(%s) added\n", key)
-  }
-  checkExpirationCallback := func(key string, value interface{}) bool {
-    if key == "key1" {
-        // if the key equals "key1", the value
-        // will not be allowed to expire
-        return false
-    }
-    // all other values are allowed to expire
-    return true
-  }
-  expirationCallback := func(key string, value interface{}) {
-    fmt.Printf("This key(%s) has expired\n", key)
-  }
+var (
+	notFound = ttlcache.ErrNotFound
+	isClosed = ttlcache.ErrClosed
+)
 
-  loaderFunction := func(key string) (data interface{}, ttl time.Duration, err error) {
-    ttl = time.Second * 300
-    data, err = getFromNetwork(key)
+func main() {
+	newItemCallback := func(key string, value interface{}) {
+		fmt.Printf("New key(%s) added\n", key)
+	}
+	checkExpirationCallback := func(key string, value interface{}) bool {
+		if key == "key1" {
+			// if the key equals "key1", the value
+			// will not be allowed to expire
+			return false
+		}
+		// all other values are allowed to expire
+		return true
+	}
+	expirationCallback := func(key string, value interface{}) {
+		fmt.Printf("This key(%s) has expired\n", key)
+	}
 
-    return data, ttl, err
-  }
+	loaderFunction := func(key string) (data interface{}, ttl time.Duration, err error) {
+		ttl = time.Second * 300
+		data, err = getFromNetwork(key)
 
-  cache := ttlcache.NewCache()
-  defer cache.Close()
-  cache.SetTTL(time.Duration(10 * time.Second))
-  cache.SetExpirationCallback(expirationCallback)
-  cache.SetLoaderFunction(loaderFunction)
+		return data, ttl, err
+	}
 
-  cache.Set("key", "value")
-  cache.SetWithTTL("keyWithTTL", "value", 10 * time.Second)
+	cache := ttlcache.NewCache()
+	defer cache.Close()
+	cache.SetTTL(time.Duration(10 * time.Second))
+	cache.SetExpirationCallback(expirationCallback)
+	cache.SetLoaderFunction(loaderFunction)
+	cache.SetNewItemCallback(newItemCallback)
+	cache.SetCheckExpirationCallback(checkExpirationCallback)
 
-  value, exists := cache.Get("key")
-  count := cache.Count()
-  result := cache.Remove("key")
+	cache.Set("key", "value")
+	cache.SetWithTTL("keyWithTTL", "value", 10*time.Second)
+
+	if value, exists := cache.Get("key"); exists == nil {
+		fmt.Printf("Got value: %v\n", value)
+	}
+	count := cache.Count()
+	if result := cache.Remove("keyNNN"); result == notFound {
+		fmt.Printf("Not found, %d items left\n", count)
+	}
+}
+
+func getFromNetwork(key string) (string, error) {
+	time.Sleep(time.Millisecond * 30)
+	return "value", nil
 }
 ```
 
