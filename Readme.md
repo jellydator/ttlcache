@@ -1,6 +1,6 @@
 # TTLCache - an in-memory cache with expiration
 
-[![Documentation](https://godoc.org/github.com/ReneKroon/ttlcache?status.svg)](http://godoc.org/github.com/ReneKroon/ttlcache)
+[![Documentation](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/ReneKroon/ttlcache/v2)
 [![Release](https://img.shields.io/github/release/ReneKroon/ttlcache.svg?label=Release)](https://github.com/ReneKroon/ttlcache/releases)
 
 TTLCache is a simple key/value cache in golang with the following functions:
