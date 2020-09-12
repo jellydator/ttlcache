@@ -19,5 +19,5 @@ script:
   - golint .
   - go test -cover -race -count=1 -timeout=30s -run .
   - cd bench; go test -run=Bench.* -bench=. -benchmem
-  - go test -v -covermode=count -coverprofile=coverage.out
+  - go test -v -covermode=count -coverprofile=coverage.out -timeout=90s .
   - $HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN
