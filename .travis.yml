@@ -12,8 +12,12 @@ install:
   - go install golang.org/x/tools/cmd/cover
   - go install golang.org/x/lint/golint
   - export PATH=$HOME/gopath/bin:$PATH
+  - go get golang.org/x/tools/cmd/cover
+  - go get github.com/mattn/goveralls
 
 script:
   - golint .
   - go test -cover -race -count=1 -timeout=30s -run .
   - cd bench; go test -run=Bench.* -bench=. -benchmem
+  - go test -v -covermode=count -coverprofile=coverage.out
+  - $HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN
