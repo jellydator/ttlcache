@@ -18,6 +18,6 @@ install:
 script:
   - golint .
   - go test -cover -race -count=1 -timeout=30s -run .
-  - go test -v -covermode=count -coverprofile=coverage.out -timeout=90s -run .
+  - go test -covermode=count -coverprofile=coverage.out -timeout=90s -run .
   - $HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN
   - cd bench; go test -run=Bench.* -bench=. -benchmem; cd..
