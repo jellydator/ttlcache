@@ -1,12 +1,12 @@
 package ttlcache_test
 
 import (
+	"go.uber.org/goleak"
 	"math/rand"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"go.uber.org/goleak"
 
 	"fmt"
 	"sync"
@@ -668,4 +668,19 @@ func TestCache_Purge(t *testing.T) {
 		assert.Equal(t, 0, cache.Count(), "Cache should be empty")
 	}
 
+}
+
+func TestCache_Limit(t *testing.T) {
+	t.Parallel()
+
+	cache := NewCache()
+	defer cache.Close()
+
+	cache.SetTTL(time.Duration(100 * time.Second))
+	cache.SetCacheSizeLimit(10)
+
+	for i := 0; i < 100; i++ {
+		cache.Set("key"+strconv.FormatInt(int64(i), 10), "value")
+	}
+	assert.Equal(t, 10, cache.Count(), "Cache should equal to limit")
 }
