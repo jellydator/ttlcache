@@ -31,6 +31,7 @@ type Cache struct {
 	shutdownSignal         chan (chan struct{})
 	isShutDown             bool
 	loaderFunction         LoaderFunction
+	sizeLimit              int
 }
 
 var (
@@ -166,7 +167,6 @@ func (cache *Cache) cleanjob() {
 // Close calls Purge after stopping the goroutine that does ttl checking, for a clean shutdown.
 // The cache is no longer cleaning up after the first call to Close, repeated calls are safe and return ErrClosed.
 func (cache *Cache) Close() error {
-
 	cache.mutex.Lock()
 	if !cache.isShutDown {
 		cache.isShutDown = true
@@ -201,6 +201,9 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 		item.data = data
 		item.ttl = ttl
 	} else {
+		if cache.sizeLimit != 0 && len(cache.items) >= cache.sizeLimit {
+			cache.removeItem(cache.priorityQueue.items[0])
+		}
 		item = newItem(key, data, ttl)
 		cache.items[key] = item
 	}
@@ -383,6 +386,13 @@ func (cache *Cache) Purge() error {
 	return nil
 }
 
+// SetCacheSizeLimit sets a limit to the amount of cached items.
+// If a new item is getting cached, the closes item to being timed out will be replaced
+// Set to 0 to turn off
+func (cache *Cache) SetCacheSizeLimit(limit int) {
+	cache.sizeLimit = limit
+}
+
 // NewCache is a helper to create instance of the Cache struct
 func NewCache() *Cache {
 
@@ -397,6 +407,7 @@ func NewCache() *Cache {
 		shutdownSignal:         shutdownChan,
 		isShutDown:             false,
 		loaderFunction:         nil,
+		sizeLimit:              0,
 	}
 	go cache.startExpirationProcessing()
 	return cache

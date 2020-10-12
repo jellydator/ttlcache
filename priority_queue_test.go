@@ -69,21 +69,21 @@ func TestPriorityQueueRemove(t *testing.T) {
 		if item == nil {
 			break
 		}
-		assert.NotEqual(t, itemRemove.key, item.key, "This element was not suppose to be in the queue")
+		assert.NotEqual(t, itemRemove.key, item.key, "This element was not supposed to be in the queue")
 	}
 
-	assert.Equal(t, queue.Len(), 0, "The queue is suppose to be with 0 items")
+	assert.Equal(t, queue.Len(), 0, "The queue is supposed to be with 0 items")
 }
 
 func TestPriorityQueueUpdate(t *testing.T) {
 	queue := newPriorityQueue()
 	item := newItem("key", "data", 1*time.Second)
 	queue.push(item)
-	assert.Equal(t, queue.Len(), 1, "The queue is suppose to be with 1 item")
+	assert.Equal(t, queue.Len(), 1, "The queue is supposed to be with 1 item")
 
 	item.key = "newKey"
 	queue.update(item)
 	newItem := queue.pop()
 	assert.Equal(t, newItem.key, "newKey", "The item key didn't change")
-	assert.Equal(t, queue.Len(), 0, "The queue is suppose to be with 0 items")
+	assert.Equal(t, queue.Len(), 0, "The queue is supposed to be with 0 items")
 }

@@ -6,7 +6,7 @@
 TTLCache is a simple key/value cache in golang with the following functions:
 
 1. Expiration of items based on time, or custom function
-2. Loader function to retrieve missing keys can be provided. Additional `Get` calls on the same key block while fetching is in progress (groupcache style). 
+2. Loader function to retrieve missing keys can be provided. Additional `Get` calls on the same key block while fetching is in progress (groupcache style).
 3. Individual expiring time or global expiring time, you can choose
 4. Auto-Extending expiration on `Get` -or- DNS style TTL, see `SkipTTLExtensionOnHit(bool)`
 5. Can trigger callback on key expiration
@@ -21,7 +21,7 @@ Note (issue #25): by default, due to historic reasons, the TTL will be reset on 
 [![GitHub issues](https://img.shields.io/github/issues/ReneKroon/ttlcache.svg)](https://github.com/ReneKroon/ttlcache/issues)
 [![license](https://img.shields.io/github/license/ReneKroon/ttlcache.svg?maxAge=2592000)](https://github.com/ReneKroon/ttlcache/LICENSE)
 
-## Usage 
+## Usage
 
 You can copy it as a full standalone demo program.
 
@@ -106,3 +106,4 @@ The main differences are:
 3. The expiration can be either global or per item
 4. Items can exist without expiration time (time.Zero)
 5. Expirations and callbacks are realtime. Don't have a pooling time to check anymore, now it's done with a heap.
+6. A cache count limiter
