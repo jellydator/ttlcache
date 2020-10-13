@@ -1,3 +1,9 @@
+# 2.1.0 (October 2020)
+
+## API changes
+
+* `SetCacheSizeLimit(limit int)` a call  was contributed to set a cache limit. #35
+
 # 2.0.0 (July 2020)
 
 ## Fixes #29, #30, #31
