@@ -683,4 +683,9 @@ func TestCache_Limit(t *testing.T) {
 		cache.Set("key"+strconv.FormatInt(int64(i), 10), "value")
 	}
 	assert.Equal(t, 10, cache.Count(), "Cache should equal to limit")
+	for i := 90; i < 100; i++ {
+		key := "key" + strconv.FormatInt(int64(i), 10)
+		val, _ := cache.Get(key)
+		assert.Equal(t, "value", val, "Cache should be set [key90, key99]")
+	}
 }
