@@ -1,7 +1,6 @@
 package ttlcache
 
 import (
-	"errors"
 	"sync"
 	"time"
 )
@@ -35,12 +34,18 @@ type Cache struct {
 	metrics                Metrics
 }
 
-var (
+const (
 	// ErrClosed is raised when operating on a cache where Close() has already been called.
-	ErrClosed = errors.New("cache already closed")
+	ErrClosed = constError("cache already closed")
 	// ErrNotFound indicates that the requested key is not present in the cache
-	ErrNotFound = errors.New("key not found")
+	ErrNotFound = constError("key not found")
 )
+
+type constError string
+
+func (err constError) Error() string {
+	return string(err)
+}
 
 func (cache *Cache) getItem(key string) (*item, bool, bool) {
 	item, exists := cache.items[key]
