@@ -32,6 +32,7 @@ type Cache struct {
 	isShutDown             bool
 	loaderFunction         LoaderFunction
 	sizeLimit              int
+	metrics                Metrics
 }
 
 var (
@@ -45,6 +46,7 @@ func (cache *Cache) getItem(key string) (*item, bool, bool) {
 	item, exists := cache.items[key]
 	if !exists || item.expired() {
 		return nil, false, false
+	} else {
 	}
 
 	if item.ttl >= 0 && (item.ttl > 0 || cache.ttl > 0) {
@@ -120,6 +122,7 @@ func (cache *Cache) startExpirationProcessing() {
 }
 
 func (cache *Cache) removeItem(item *item) {
+	cache.metrics.Evicted++
 	if cache.expireCallback != nil {
 		go cache.expireCallback(item.key, item.data)
 	}
@@ -207,6 +210,7 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 		item = newItem(key, data, ttl)
 		cache.items[key] = item
 	}
+	cache.metrics.Inserted++
 
 	if item.ttl >= 0 && (item.ttl > 0 || cache.ttl > 0) {
 		if cache.ttl > 0 && item.ttl == 0 {
@@ -237,15 +241,19 @@ func (cache *Cache) Get(key string) (interface{}, error) {
 		cache.mutex.Unlock()
 		return nil, ErrClosed
 	}
+
+	cache.metrics.Hits++
 	item, exists, triggerExpirationNotification := cache.getItem(key)
 
 	var dataToReturn interface{}
 	if exists {
+		cache.metrics.Retrievals++
 		dataToReturn = item.data
 	}
 
 	var err error
 	if !exists {
+		cache.metrics.Misses++
 		err = ErrNotFound
 	}
 	if cache.loaderFunction == nil || exists {
@@ -381,6 +389,7 @@ func (cache *Cache) Purge() error {
 	if cache.isShutDown {
 		return ErrClosed
 	}
+	cache.metrics.Evicted += int64(len(cache.items))
 	cache.items = make(map[string]*item)
 	cache.priorityQueue = newPriorityQueue()
 	return nil
@@ -408,9 +417,15 @@ func NewCache() *Cache {
 		isShutDown:             false,
 		loaderFunction:         nil,
 		sizeLimit:              0,
+		metrics:                Metrics{},
 	}
 	go cache.startExpirationProcessing()
 	return cache
+}
+
+// GetMetrics exposes the metrics of the cache. This is a snapshot copy of the metrics.
+func (cache *Cache) GetMetrics() Metrics {
+	return cache.metrics
 }
 
 func min(duration time.Duration, second time.Duration) time.Duration {

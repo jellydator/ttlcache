@@ -1,12 +1,13 @@
 package ttlcache_test
 
 import (
-	"go.uber.org/goleak"
 	"math/rand"
 	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"go.uber.org/goleak"
 
 	"fmt"
 	"sync"
@@ -17,6 +18,38 @@ import (
 
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
+}
+
+// Issue #37: Cache metrics
+func TestCache_TestMetrics(t *testing.T) {
+	t.Parallel()
+	cache := NewCache()
+	defer cache.Close()
+
+	cache.SetTTL(time.Second)
+	cache.Set("myKey", "myData")
+	cache.SetWithTTL("myKey2", "myData", time.Second)
+
+	cache.Get("myKey")
+	cache.Get("myMiss")
+
+	metrics := cache.GetMetrics()
+	assert.Equal(t, int64(2), metrics.Inserted)
+	assert.Equal(t, int64(1), metrics.Misses)
+	assert.Equal(t, int64(2), metrics.Hits)
+	assert.Equal(t, int64(1), metrics.Retrievals)
+	cache.Purge()
+	metrics = cache.GetMetrics()
+	assert.Equal(t, int64(2), metrics.Evicted)
+
+	cache.SetWithTTL("3", "3", time.Nanosecond)
+	cache.SetWithTTL("4", "4", time.Nanosecond)
+	cache.Count()
+	time.Sleep(time.Millisecond * 10)
+
+	metrics = cache.GetMetrics()
+	assert.Equal(t, int64(4), metrics.Evicted)
+
 }
 
 // Issue #31: Test that a single fetch is executed with the loader function
