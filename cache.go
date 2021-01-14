@@ -430,6 +430,8 @@ func NewCache() *Cache {
 
 // GetMetrics exposes the metrics of the cache. This is a snapshot copy of the metrics.
 func (cache *Cache) GetMetrics() Metrics {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 	return cache.metrics
 }
 
