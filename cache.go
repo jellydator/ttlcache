@@ -11,6 +11,9 @@ type CheckExpireCallback func(key string, value interface{}) bool
 // ExpireCallback is used as a callback on item expiration or when notifying of an item new to the cache
 type ExpireCallback func(key string, value interface{})
 
+// ExpireReasonCallback is used as a callback on item expiration with extra information why the item expired.
+type ExpireReasonCallback func(key string, reason EvictionReason, value interface{})
+
 // LoaderFunction can be supplied to retrieve an item where a cache miss occurs. Supply an item specific ttl or Duration.Zero
 type LoaderFunction func(key string) (data interface{}, ttl time.Duration, err error)
 
@@ -21,6 +24,7 @@ type Cache struct {
 	items                  map[string]*item
 	loaderLock             map[string]*sync.Cond
 	expireCallback         ExpireCallback
+	expireReasonCallback   ExpireReasonCallback
 	checkExpireCallback    CheckExpireCallback
 	newItemCallback        ExpireCallback
 	priorityQueue          *priorityQueue
@@ -33,6 +37,20 @@ type Cache struct {
 	sizeLimit              int
 	metrics                Metrics
 }
+
+// EvictionReason is an enum that explains why an item was evicted
+type EvictionReason int
+
+const (
+	// Removed : explicitly removed from cache via API call
+	Removed EvictionReason = iota
+	// EvictedSize : evicted due to exceeding the cache size
+	EvictedSize
+	// Expired : the time to live is zero and therefore the item is removed
+	Expired
+	// Closed : the cache was closed
+	Closed
+)
 
 const (
 	// ErrClosed is raised when operating on a cache where Close() has already been called.
@@ -51,7 +69,6 @@ func (cache *Cache) getItem(key string) (*item, bool, bool) {
 	item, exists := cache.items[key]
 	if !exists || item.expired() {
 		return nil, false, false
-	} else {
 	}
 
 	if item.ttl >= 0 && (item.ttl > 0 || cache.ttl > 0) {
@@ -103,7 +120,7 @@ func (cache *Cache) startExpirationProcessing() {
 			timer.Stop()
 			cache.mutex.Lock()
 			if cache.priorityQueue.Len() > 0 {
-				cache.evictjob()
+				cache.evictjob(Closed)
 			}
 			cache.mutex.Unlock()
 			shutdownFeedback <- struct{}{}
@@ -126,22 +143,29 @@ func (cache *Cache) startExpirationProcessing() {
 	}
 }
 
-func (cache *Cache) removeItem(item *item) {
-	cache.metrics.Evicted++
+func (cache *Cache) checkExpirationCallback(item *item, reason EvictionReason) {
 	if cache.expireCallback != nil {
 		go cache.expireCallback(item.key, item.data)
 	}
+	if cache.expireReasonCallback != nil {
+		go cache.expireReasonCallback(item.key, reason, item.data)
+	}
+}
+
+func (cache *Cache) removeItem(item *item, reason EvictionReason) {
+	cache.metrics.Evicted++
+	cache.checkExpirationCallback(item, reason)
 	cache.priorityQueue.remove(item)
 	delete(cache.items, item.key)
 
 }
 
-func (cache *Cache) evictjob() {
+func (cache *Cache) evictjob(reason EvictionReason) {
 	// index will only be advanced if the current entry will not be evicted
 	i := 0
 	for item := cache.priorityQueue.items[i]; ; item = cache.priorityQueue.items[i] {
 
-		cache.removeItem(item)
+		cache.removeItem(item, reason)
 		if cache.priorityQueue.Len() == 0 {
 			return
 		}
@@ -165,7 +189,7 @@ func (cache *Cache) cleanjob() {
 			}
 		}
 
-		cache.removeItem(item)
+		cache.removeItem(item, Expired)
 		if cache.priorityQueue.Len() == 0 {
 			return
 		}
@@ -210,7 +234,7 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 		item.ttl = ttl
 	} else {
 		if cache.sizeLimit != 0 && len(cache.items) >= cache.sizeLimit {
-			cache.removeItem(cache.priorityQueue.items[0])
+			cache.removeItem(cache.priorityQueue.items[0], EvictedSize)
 		}
 		item = newItem(key, data, ttl)
 		cache.items[key] = item
@@ -327,7 +351,7 @@ func (cache *Cache) Remove(key string) error {
 	if !exists {
 		return ErrNotFound
 	}
-	cache.removeItem(object)
+	cache.removeItem(object, Removed)
 
 	return nil
 }
@@ -361,6 +385,11 @@ func (cache *Cache) SetTTL(ttl time.Duration) error {
 // SetExpirationCallback sets a callback that will be called when an item expires
 func (cache *Cache) SetExpirationCallback(callback ExpireCallback) {
 	cache.expireCallback = callback
+}
+
+// SetExpirationReasonCallback sets a callback that will be called when an item expires, includes reason of expiry
+func (cache *Cache) SetExpirationReasonCallback(callback ExpireReasonCallback) {
+	cache.expireReasonCallback = callback
 }
 
 // SetCheckExpirationCallback sets a callback that will be called when an item is about to expire
