@@ -53,8 +53,9 @@ func main() {
 		// all other values are allowed to expire
 		return true
 	}
-	expirationCallback := func(key string, value interface{}) {
-		fmt.Printf("This key(%s) has expired\n", key)
+
+	expirationCallback := func(key string, reason ttlcache.EvictionReason, value interface{}) {
+		fmt.Printf("This key(%s) has expired because of %s\n", key, reason)
 	}
 
 	loaderFunction := func(key string) (data interface{}, ttl time.Duration, err error) {
@@ -65,12 +66,12 @@ func main() {
 	}
 
 	cache := ttlcache.NewCache()
-	defer cache.Close()
 	cache.SetTTL(time.Duration(10 * time.Second))
-	cache.SetExpirationCallback(expirationCallback)
+	cache.SetExpirationReasonCallback(expirationCallback)
 	cache.SetLoaderFunction(loaderFunction)
 	cache.SetNewItemCallback(newItemCallback)
 	cache.SetCheckExpirationCallback(checkExpirationCallback)
+	cache.SetCacheSizeLimit(2)
 
 	cache.Set("key", "value")
 	cache.SetWithTTL("keyWithTTL", "value", 10*time.Second)
@@ -82,6 +83,14 @@ func main() {
 	if result := cache.Remove("keyNNN"); result == notFound {
 		fmt.Printf("Not found, %d items left\n", count)
 	}
+
+	cache.Set("key6", "value")
+	cache.Set("key7", "value")
+	metrics := cache.GetMetrics()
+	fmt.Printf("Total inserted: %d\n", metrics.Inserted)
+
+	cache.Close()
+
 }
 
 func getFromNetwork(key string) (string, error) {

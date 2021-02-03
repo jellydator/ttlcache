@@ -9,6 +9,7 @@ import (
 type CheckExpireCallback func(key string, value interface{}) bool
 
 // ExpireCallback is used as a callback on item expiration or when notifying of an item new to the cache
+// Note that ExpireReasonCallback will be the succesor of this function in the next major release.
 type ExpireCallback func(key string, value interface{})
 
 // ExpireReasonCallback is used as a callback on item expiration with extra information why the item expired.

@@ -20,6 +20,43 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
+// Issue #38: Feature request: ability to know why an expiry has occurred
+func TestCache_textExpirationReasons(t *testing.T) {
+	t.Parallel()
+	cache := NewCache()
+
+	var reason EvictionReason
+	var sync = make(chan struct{})
+	expirationReason := func(key string, evReason EvictionReason, value interface{}) {
+		reason = evReason
+		sync <- struct{}{}
+	}
+	cache.SetExpirationReasonCallback(expirationReason)
+
+	cache.SetTTL(time.Millisecond)
+	cache.Set("one", "one")
+	<-sync
+	assert.Equal(t, Expired, reason)
+
+	cache.SetTTL(time.Hour)
+	cache.SetCacheSizeLimit(1)
+	cache.Set("two", "two")
+	cache.Set("twoB", "twoB")
+	<-sync
+	assert.Equal(t, EvictedSize, reason)
+
+	cache.Remove("twoB")
+	<-sync
+	assert.Equal(t, Removed, reason)
+
+	cache.SetTTL(time.Hour)
+	cache.Set("three", "three")
+	cache.Close()
+	<-sync
+	assert.Equal(t, Closed, reason)
+
+}
+
 // Issue #37: Cache metrics
 func TestCache_TestMetrics(t *testing.T) {
 	t.Parallel()
