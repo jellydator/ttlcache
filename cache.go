@@ -265,7 +265,7 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 
 // Get is a thread-safe way to lookup items
 // Every lookup, also touches the item, hence extending it's life
-func (cache *Cache) Get(key string) (interface{}, error) {
+func (cache *Cache) Get(key string, customLoaderFunction ...LoaderFunction) (interface{}, error) {
 	cache.mutex.Lock()
 	if cache.isShutDown {
 		cache.mutex.Unlock()
@@ -286,11 +286,17 @@ func (cache *Cache) Get(key string) (interface{}, error) {
 		cache.metrics.Misses++
 		err = ErrNotFound
 	}
-	if cache.loaderFunction == nil || exists {
+
+	loaderFunction := cache.loaderFunction
+	if len(customLoaderFunction) > 0 {
+		loaderFunction = customLoaderFunction[0]
+	}
+
+	if loaderFunction == nil || exists {
 		cache.mutex.Unlock()
 	}
 
-	if cache.loaderFunction != nil && !exists {
+	if loaderFunction != nil && !exists {
 		if lock, ok := cache.loaderLock[key]; ok {
 			// if a lock is present then a fetch is in progress and we wait.
 			cache.mutex.Unlock()
@@ -310,7 +316,7 @@ func (cache *Cache) Get(key string) (interface{}, error) {
 			cache.loaderLock[key] = m
 			cache.mutex.Unlock()
 			// cache is not blocked during IO
-			dataToReturn, err = cache.invokeLoader(key)
+			dataToReturn, err = cache.invokeLoader(key, loaderFunction)
 			cache.mutex.Lock()
 			m.Broadcast()
 			// cleanup so that we don't block consecutive access.
@@ -327,10 +333,10 @@ func (cache *Cache) Get(key string) (interface{}, error) {
 	return dataToReturn, err
 }
 
-func (cache *Cache) invokeLoader(key string) (dataToReturn interface{}, err error) {
+func (cache *Cache) invokeLoader(key string, loaderFunction LoaderFunction) (dataToReturn interface{}, err error) {
 	var ttl time.Duration
 
-	dataToReturn, ttl, err = cache.loaderFunction(key)
+	dataToReturn, ttl, err = loaderFunction(key)
 	if err == nil {
 		err = cache.SetWithTTL(key, dataToReturn, ttl)
 		if err != nil {
