@@ -465,6 +465,18 @@ func (cache *Cache) GetMetrics() Metrics {
 	return cache.metrics
 }
 
+// Touch resets the TTL of the key when it exists, returns ErrNotFound if the key is not present.
+func (cache *Cache) Touch(key string) error {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
+	item, exists := cache.items[key]
+	if !exists {
+		return ErrNotFound
+	}
+	item.touch()
+	return nil
+}
+
 func min(duration time.Duration, second time.Duration) time.Duration {
 	if duration < second {
 		return duration
