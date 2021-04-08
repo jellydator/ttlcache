@@ -611,6 +611,21 @@ func TestCacheGet(t *testing.T) {
 	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
 }
 
+func TestCacheGetKeys(t *testing.T) {
+	t.Parallel()
+
+	cache := NewCache()
+	defer cache.Close()
+
+	keys := cache.GetKeys()
+	assert.Empty(t, keys, "Expected keys to be empty")
+
+	cache.Set("hello", "world")
+	keys = cache.GetKeys()
+	assert.NotEmpty(t, keys, "Expected keys to be not empty")
+	assert.Equal(t, []string {"hello"}, keys, "Expected keys contains 'world'")
+}
+
 func TestCacheExpirationCallbackFunction(t *testing.T) {
 	t.Parallel()
 
