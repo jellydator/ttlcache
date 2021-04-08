@@ -623,7 +623,7 @@ func TestCacheGetKeys(t *testing.T) {
 	cache.Set("hello", "world")
 	keys = cache.GetKeys()
 	assert.NotEmpty(t, keys, "Expected keys to be not empty")
-	assert.Equal(t, []string {"hello"}, keys, "Expected keys contains 'world'")
+	assert.Equal(t, []string{"hello"}, keys, "Expected keys contains 'hello'")
 }
 
 func TestCacheExpirationCallbackFunction(t *testing.T) {
