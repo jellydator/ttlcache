@@ -369,6 +369,23 @@ func (cache *Cache) Count() int {
 	return length
 }
 
+// GetKeys returns all keys of items in the cache. Returns nil when the cache has been closed.
+func (cache *Cache) GetKeys() []string {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
+
+	if cache.isShutDown {
+		return nil
+	}
+	keys := make([]string, len(cache.items))
+	i := 0
+	for k := range cache.items {
+		keys[i] = k
+		i++
+	}
+	return keys
+}
+
 // SetTTL sets the global TTL value for items in the cache, which can be overridden at the item level.
 func (cache *Cache) SetTTL(ttl time.Duration) error {
 	cache.mutex.Lock()
