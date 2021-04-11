@@ -57,6 +57,50 @@ func TestCache_textExpirationReasons(t *testing.T) {
 
 }
 
+func TestCache_TestTouch(t *testing.T) {
+	t.Parallel()
+	cache := NewCache()
+	defer cache.Close()
+
+	lock := sync.Mutex{}
+
+	lock.Lock()
+	expired := false
+	lock.Unlock()
+
+	cache.SkipTTLExtensionOnHit(true)
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		lock.Lock()
+		defer lock.Unlock()
+		expired = true
+	})
+
+	cache.SetWithTTL("key", "data", time.Millisecond*900)
+	<-time.After(time.Millisecond * 500)
+
+	// no Touch
+	//	cache.Touch("key")
+
+	<-time.After(time.Millisecond * 500)
+	lock.Lock()
+	assert.Equal(t, true, expired)
+	lock.Unlock()
+	cache.Remove("key")
+
+	lock.Lock()
+	expired = false
+	lock.Unlock()
+
+	cache.SetWithTTL("key", "data", time.Millisecond*900)
+	<-time.After(time.Millisecond * 500)
+	cache.Touch("key")
+
+	<-time.After(time.Millisecond * 500)
+	lock.Lock()
+	assert.Equal(t, false, expired)
+	lock.Unlock()
+}
+
 // Issue #37: Cache metrics
 func TestCache_TestMetrics(t *testing.T) {
 	t.Parallel()
