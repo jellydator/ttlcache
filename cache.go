@@ -274,12 +274,13 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 	return nil
 }
 
+// Get is a thread-safe way to lookup items
+// Every lookup, also touches the item, hence extending it's life
 func (cache *Cache) Get(key string) (interface{}, error) {
 	return cache.GetByLoader(key, nil)
 }
 
-// Get is a thread-safe way to lookup items
-// Every lookup, also touches the item, hence extending it's life
+// GetByLoader can take a per key loader function (ie. to propagate context)
 func (cache *Cache) GetByLoader(key string, customLoaderFunction LoaderFunction) (interface{}, error) {
 	cache.mutex.Lock()
 	if cache.isShutDown {
