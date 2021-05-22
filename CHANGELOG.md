@@ -1,3 +1,16 @@
+# 2.4.0 (May 2021)
+
+## API changes:
+
+* #42 : Add option to get list of keys
+* #40: Allow 'Touch' on items without other operation
+
+// Touch resets the TTL of the key when it exists, returns ErrNotFound if the key is not present.
+func (cache *Cache) Touch(key string) error 
+
+// GetKeys returns all keys of items in the cache. Returns nil when the cache has been closed.
+func (cache *Cache) GetKeys() []string 
+
 # 2.3.0 (February 2021)
 
 ## API changes:
