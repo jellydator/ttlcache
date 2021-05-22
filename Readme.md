@@ -23,8 +23,39 @@ Note (issue #25): by default, due to historic reasons, the TTL will be reset on 
 
 ## Usage
 
-You can copy it as a full standalone demo program.
+You can copy it as a full standalone demo program. The first snippet is basic usage, where the second exploits more options in the cache.
 
+Basic:
+```go
+package main
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/ReneKroon/ttlcache/v2"
+)
+
+var notFound = ttlcache.ErrNotFound
+
+func main() {
+	var cache ttlcache.SimpleCache = ttlcache.NewCache()
+
+	cache.SetTTL(time.Duration(10 * time.Second))
+	cache.Set("MyKey", "MyValue")
+	cache.Set("MyNumber", 1000)
+
+	if val, err := cache.Get("MyKey"); err != notFound {
+		fmt.Printf("Got it: %s\n", val)
+	}
+
+	cache.Remove("MyNumber")
+	cache.Purge()
+	cache.Close()
+}
+```
+
+Advanced:
 ```go
 package main
 

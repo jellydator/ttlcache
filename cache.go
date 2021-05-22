@@ -18,6 +18,17 @@ type ExpireReasonCallback func(key string, reason EvictionReason, value interfac
 // LoaderFunction can be supplied to retrieve an item where a cache miss occurs. Supply an item specific ttl or Duration.Zero
 type LoaderFunction func(key string) (data interface{}, ttl time.Duration, err error)
 
+// SimpleCache interface enables a quick-start. Interface for basic usage.
+type SimpleCache interface {
+	Get(key string) (interface{}, error)
+	Set(key string, data interface{}) error
+	SetTTL(ttl time.Duration) error
+	SetWithTTL(key string, data interface{}, ttl time.Duration) error
+	Remove(key string) error
+	Close() error
+	Purge() error
+}
+
 // Cache is a synchronized map of items that can auto-expire once stale
 type Cache struct {
 	mutex                  sync.Mutex
@@ -263,9 +274,13 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 	return nil
 }
 
+func (cache *Cache) Get(key string) (interface{}, error) {
+	return cache.GetByLoader(key, nil)
+}
+
 // Get is a thread-safe way to lookup items
 // Every lookup, also touches the item, hence extending it's life
-func (cache *Cache) Get(key string, customLoaderFunction ...LoaderFunction) (interface{}, error) {
+func (cache *Cache) GetByLoader(key string, customLoaderFunction LoaderFunction) (interface{}, error) {
 	cache.mutex.Lock()
 	if cache.isShutDown {
 		cache.mutex.Unlock()
@@ -288,8 +303,8 @@ func (cache *Cache) Get(key string, customLoaderFunction ...LoaderFunction) (int
 	}
 
 	loaderFunction := cache.loaderFunction
-	if len(customLoaderFunction) > 0 {
-		loaderFunction = customLoaderFunction[0]
+	if customLoaderFunction != nil {
+		loaderFunction = customLoaderFunction
 	}
 
 	if loaderFunction == nil || exists {

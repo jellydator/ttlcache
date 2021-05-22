@@ -20,6 +20,57 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
+// The SimpleCache interface enables quick-start.
+func TestCache_SimpleCache(t *testing.T) {
+	t.Parallel()
+	var cache SimpleCache = NewCache()
+
+	cache.SetTTL(time.Second)
+	cache.Set("k", "v")
+	cache.Get("k")
+	cache.Purge()
+	cache.Close()
+
+}
+
+// Issue / PR #39: add customer loader function for each Get() #
+// some middleware prefers to define specific context's etc per Get.
+// This is faciliated by supplying a loder function with Get's.
+func TestCache_GetByLoader(t *testing.T) {
+	t.Parallel()
+	cache := NewCache()
+	defer cache.Close()
+
+	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
+		return "global", 0, nil
+	}
+	cache.SetLoaderFunction(globalLoader)
+
+	localLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
+		return "local", 0, nil
+	}
+
+	key, _ := cache.Get("test")
+	assert.Equal(t, "global", key)
+
+	cache.Remove("test")
+
+	localKey, _ := cache.GetByLoader("test", localLoader)
+	assert.Equal(t, "local", localKey)
+
+	cache.Remove("test")
+
+	globalKey, _ := cache.GetByLoader("test", globalLoader)
+	assert.Equal(t, "global", globalKey)
+
+	cache.Remove("test")
+
+	defaultKey, _ := cache.GetByLoader("test", nil)
+	assert.Equal(t, "global", defaultKey)
+
+	cache.Remove("test")
+}
+
 // Issue #38: Feature request: ability to know why an expiry has occurred
 func TestCache_textExpirationReasons(t *testing.T) {
 	t.Parallel()
