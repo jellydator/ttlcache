@@ -1,3 +1,9 @@
+# 2.6.0 (May 2021)
+
+#44 : There are no API changes, but a contribution was made to use https://pkg.go.dev/golang.org/x/sync/singleflight as a way to provide everybody waiting for a key with that key when it's fetched. 
+
+This removes some complexity from the code and will make sure that all callers will get a return value even if there's high concurrency and low TTL (as proven by the test that was added).
+
 # 2.5.0 (May 2021)
 
 ## API changes:
