@@ -1,4 +1,12 @@
-# 2.4.0 (May 2021)
+# 2.5.0 (May 2021)
+
+## API changes:
+
+* #39 : Allow custom loader function for each key via `GetByLoader`
+
+Introduce the `SimpleCache` interface for quick-start and basic usage.
+
+# 2.4.0 (April 2021)
 
 ## API changes:
 
