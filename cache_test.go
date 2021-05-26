@@ -284,14 +284,13 @@ func TestCache_TestLoaderFunctionParallelKeyAccess(t *testing.T) {
 	cache := NewCache()
 
 	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
-		time.Sleep(time.Millisecond*300)
-		return "1", 1*time.Nanosecond, nil
+		time.Sleep(time.Millisecond * 300)
+		return "1", 1 * time.Nanosecond, nil
 	})
-
 
 	wg := sync.WaitGroup{}
 	errCount := uint64(0)
-	for i:=0; i<200; i++ {
+	for i := 0; i < 200; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
