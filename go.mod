@@ -8,5 +8,6 @@ require (
 	github.com/stretchr/testify v1.7.0
 	go.uber.org/goleak v1.1.10
 	golang.org/x/lint v0.0.0-20201208152925-83fdc39ff7b5 // indirect
+	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9
 	golang.org/x/tools v0.0.0-20210112230658-8b4aab62c064 // indirect
 )
