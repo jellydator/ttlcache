@@ -278,6 +278,38 @@ func TestCache_TestLoaderFunctionDuringClose(t *testing.T) {
 
 }
 
+// Cache sometimes returns key not found under parallel access with a loader function
+func TestCache_TestLoaderFunctionParallelKeyAccess(t *testing.T) {
+	t.Parallel()
+	cache := NewCache()
+
+	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
+		time.Sleep(time.Millisecond*300)
+		return "1", 1*time.Nanosecond, nil
+	})
+
+
+	wg := sync.WaitGroup{}
+	errCount := uint64(0)
+	for i:=0; i<200; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			value, found := cache.Get("foo")
+			if value != "1" || found != nil { // Use an atomic to avoid spamming logs
+				atomic.AddUint64(&errCount, 1)
+			}
+		}()
+
+	}
+
+	wg.Wait()
+
+	assert.Equalf(t, uint64(0), errCount, "expected 0 errs, got %d", errCount)
+
+	cache.Close()
+}
+
 // Issue #28: call expirationCallback automatically on cache.Close()
 func TestCache_ExpirationOnClose(t *testing.T) {
 	t.Parallel()
