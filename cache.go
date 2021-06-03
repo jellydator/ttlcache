@@ -404,22 +404,30 @@ func (cache *Cache) SetTTL(ttl time.Duration) error {
 
 // SetExpirationCallback sets a callback that will be called when an item expires
 func (cache *Cache) SetExpirationCallback(callback ExpireCallback) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 	cache.expireCallback = callback
 }
 
 // SetExpirationReasonCallback sets a callback that will be called when an item expires, includes reason of expiry
 func (cache *Cache) SetExpirationReasonCallback(callback ExpireReasonCallback) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 	cache.expireReasonCallback = callback
 }
 
 // SetCheckExpirationCallback sets a callback that will be called when an item is about to expire
 // in order to allow external code to decide whether the item expires or remains for another TTL cycle
 func (cache *Cache) SetCheckExpirationCallback(callback CheckExpireCallback) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 	cache.checkExpireCallback = callback
 }
 
 // SetNewItemCallback sets a callback that will be called when a new item is added to the cache
 func (cache *Cache) SetNewItemCallback(callback ExpireCallback) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 	cache.newItemCallback = callback
 }
 
@@ -427,12 +435,16 @@ func (cache *Cache) SetNewItemCallback(callback ExpireCallback) {
 // no longer extend TTL of items when they are retrieved using Get, or when their expiration condition is evaluated
 // using SetCheckExpirationCallback.
 func (cache *Cache) SkipTTLExtensionOnHit(value bool) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 	cache.skipTTLExtension = value
 }
 
 // SetLoaderFunction allows you to set a function to retrieve cache misses. The signature matches that of the Get function.
 // Additional Get calls on the same key block while fetching is in progress (groupcache style).
 func (cache *Cache) SetLoaderFunction(loader LoaderFunction) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 	cache.loaderFunction = loader
 }
 
@@ -453,6 +465,8 @@ func (cache *Cache) Purge() error {
 // If a new item is getting cached, the closes item to being timed out will be replaced
 // Set to 0 to turn off
 func (cache *Cache) SetCacheSizeLimit(limit int) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
 	cache.sizeLimit = limit
 }
 
