@@ -33,6 +33,46 @@ func TestCache_SimpleCache(t *testing.T) {
 
 }
 
+// Issue 45 : This test was used to test different code paths for best performance.
+func TestCache_GetByLoaderRace(t *testing.T) {
+	t.Skip()
+	t.Parallel()
+	cache := NewCache()
+	cache.SetTTL(time.Microsecond)
+	defer cache.Close()
+
+	loaderInvocations := uint64(0)
+	inFlight := uint64(0)
+
+	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
+		atomic.AddUint64(&inFlight, 1)
+		atomic.AddUint64(&loaderInvocations, 1)
+		time.Sleep(time.Microsecond)
+		assert.Equal(t, uint64(1), inFlight)
+		defer atomic.AddUint64(&inFlight, ^uint64(0))
+		return "global", 0, nil
+
+	}
+	cache.SetLoaderFunction(globalLoader)
+
+	for i := 0; i < 1000; i++ {
+		wg := sync.WaitGroup{}
+		for i := 0; i < 1000; i++ {
+			wg.Add(1)
+			go func() {
+				key, _ := cache.Get("test")
+				assert.Equal(t, "global", key)
+				wg.Done()
+
+			}()
+		}
+		wg.Wait()
+		t.Logf("Invocations: %d\n", loaderInvocations)
+		loaderInvocations = 0
+	}
+
+}
+
 // Issue / PR #39: add customer loader function for each Get() #
 // some middleware prefers to define specific context's etc per Get.
 // This is faciliated by supplying a loder function with Get's.

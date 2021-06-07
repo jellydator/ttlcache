@@ -1,9 +1,10 @@
 package ttlcache
 
 import (
-	"golang.org/x/sync/singleflight"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // CheckExpireCallback is used as a callback for an external check on item expiration
@@ -314,12 +315,15 @@ func (cache *Cache) GetByLoader(key string, customLoaderFunction LoaderFunction)
 	}
 
 	if loaderFunction != nil && !exists {
-		cache.mutex.Unlock()
-		dataToReturn, err, _ = cache.loaderLock.Do(key, func() (interface{}, error) {
+		ch := cache.loaderLock.DoChan(key, func() (interface{}, error) {
 			// cache is not blocked during io
 			invokeData, err := cache.invokeLoader(key, loaderFunction)
 			return invokeData, err
 		})
+		cache.mutex.Unlock()
+		res := <-ch
+		dataToReturn = res.Val
+		err = res.Err
 	}
 
 	if triggerExpirationNotification {
