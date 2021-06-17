@@ -23,6 +23,8 @@ Note (issue #25): by default, due to historic reasons, the TTL will be reset on 
 
 ## Usage
 
+`go get github.com/ReneKroon/ttlcache/v2`
+
 You can copy it as a full standalone demo program. The first snippet is basic usage, where the second exploits more options in the cache.
 
 Basic:
