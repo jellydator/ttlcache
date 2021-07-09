@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"sync"
 
-	. "github.com/ReneKroon/ttlcache/v2"
+	. "github.com/asgarciap/ttlcache/v2"
 	"github.com/stretchr/testify/assert"
 )
 
