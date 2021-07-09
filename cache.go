@@ -23,6 +23,7 @@ type LoaderFunction func(key string) (data interface{}, ttl time.Duration, err e
 // SimpleCache interface enables a quick-start. Interface for basic usage.
 type SimpleCache interface {
 	Get(key string) (interface{}, error)
+	GetWithTTL(key string) (interface{}, time.Duration, error)
 	Set(key string, data interface{}) error
 	SetTTL(ttl time.Duration) error
 	SetWithTTL(key string, data interface{}, ttl time.Duration) error
@@ -280,24 +281,36 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 // Get is a thread-safe way to lookup items
 // Every lookup, also touches the item, hence extending it's life
 func (cache *Cache) Get(key string) (interface{}, error) {
+	data, _, err := cache.GetByLoader(key, nil)
+	return data, err
+}
+
+// GetWithTTL has exactly the same behaviour as Get but also returns
+// the remaining TTL for an specific item at the moment it its retrieved
+func (cache *Cache) GetWithTTL(key string) (interface{}, time.Duration, error) {
 	return cache.GetByLoader(key, nil)
 }
 
 // GetByLoader can take a per key loader function (ie. to propagate context)
-func (cache *Cache) GetByLoader(key string, customLoaderFunction LoaderFunction) (interface{}, error) {
+func (cache *Cache) GetByLoader(key string, customLoaderFunction LoaderFunction) (interface{}, time.Duration, error) {
 	cache.mutex.Lock()
 	if cache.isShutDown {
 		cache.mutex.Unlock()
-		return nil, ErrClosed
+		return nil, 0, ErrClosed
 	}
 
 	cache.metrics.Hits++
 	item, exists, triggerExpirationNotification := cache.getItem(key)
 
 	var dataToReturn interface{}
+	ttlToReturn := time.Duration(0)
 	if exists {
 		cache.metrics.Retrievals++
 		dataToReturn = item.data
+		ttlToReturn = time.Until(item.expireAt)
+		if ttlToReturn < 0 {
+			ttlToReturn = 0
+		}
 	}
 
 	var err error
@@ -316,14 +329,23 @@ func (cache *Cache) GetByLoader(key string, customLoaderFunction LoaderFunction)
 	}
 
 	if loaderFunction != nil && !exists {
+		type loaderResult struct {
+			data interface{}
+			ttl  time.Duration
+		}
 		ch := cache.loaderLock.DoChan(key, func() (interface{}, error) {
 			// cache is not blocked during io
-			invokeData, err := cache.invokeLoader(key, loaderFunction)
-			return invokeData, err
+			invokeData, ttl, err := cache.invokeLoader(key, loaderFunction)
+			lr := &loaderResult{
+				data: invokeData,
+				ttl:  ttl,
+			}
+			return lr, err
 		})
 		cache.mutex.Unlock()
 		res := <-ch
-		dataToReturn = res.Val
+		dataToReturn = res.Val.(*loaderResult).data
+		ttlToReturn = res.Val.(*loaderResult).ttl
 		err = res.Err
 	}
 
@@ -331,20 +353,19 @@ func (cache *Cache) GetByLoader(key string, customLoaderFunction LoaderFunction)
 		cache.expirationNotification <- true
 	}
 
-	return dataToReturn, err
+	return dataToReturn, ttlToReturn, err
 }
 
-func (cache *Cache) invokeLoader(key string, loaderFunction LoaderFunction) (dataToReturn interface{}, err error) {
-	var ttl time.Duration
-
+func (cache *Cache) invokeLoader(key string, loaderFunction LoaderFunction) (dataToReturn interface{}, ttl time.Duration, err error) {
 	dataToReturn, ttl, err = loaderFunction(key)
 	if err == nil {
 		err = cache.SetWithTTL(key, dataToReturn, ttl)
 		if err != nil {
 			dataToReturn = nil
+			ttl = 0
 		}
 	}
-	return dataToReturn, err
+	return dataToReturn, ttl, err
 }
 
 // Remove removes an item from the cache if it exists, triggers expiration callback when set. Can return ErrNotFound if the entry was not present.

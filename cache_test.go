@@ -101,17 +101,17 @@ func TestCache_GetByLoader(t *testing.T) {
 
 	cache.Remove("test")
 
-	localKey, _ := cache.GetByLoader("test", localLoader)
+	localKey, _, _ := cache.GetByLoader("test", localLoader)
 	assert.Equal(t, "local", localKey)
 
 	cache.Remove("test")
 
-	globalKey, _ := cache.GetByLoader("test", globalLoader)
+	globalKey, _, _ := cache.GetByLoader("test", globalLoader)
 	assert.Equal(t, "global", globalKey)
 
 	cache.Remove("test")
 
-	defaultKey, _ := cache.GetByLoader("test", nil)
+	defaultKey, _, _ := cache.GetByLoader("test", nil)
 	assert.Equal(t, "global", defaultKey)
 
 	cache.Remove("test")
@@ -780,6 +780,64 @@ func TestCacheGet(t *testing.T) {
 	assert.NotNil(t, data, "Expected data to be not nil")
 	assert.Equal(t, nil, exists, "Expected data to exist")
 	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
+}
+
+func TestCacheGetWithTTL(t *testing.T) {
+	t.Parallel()
+
+	cache := NewCache()
+	defer cache.Close()
+
+	data, ttl, exists := cache.GetWithTTL("hello")
+	assert.Equal(t, exists, ErrNotFound, "Expected empty cache to return no data")
+	assert.Nil(t, data, "Expected data to be empty")
+	assert.Equal(t, int(ttl), 0, "Expected item TTL to be 0")
+
+	cache.Set("hello", "world")
+	data, ttl, exists = cache.GetWithTTL("hello")
+	assert.NotNil(t, data, "Expected data to be not nil")
+	assert.Equal(t, nil, exists, "Expected data to exist")
+	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
+	assert.Equal(t, int(ttl), 0, "Expected item TTL to be 0")
+
+	orgttl := time.Duration(500 * time.Millisecond)
+	cache.SetWithTTL("hello", "world", orgttl)
+	time.Sleep(10 * time.Millisecond)
+	data, ttl, exists = cache.GetWithTTL("hello")
+	assert.NotNil(t, data, "Expected data to be not nil")
+	assert.Equal(t, nil, exists, "Expected data to exist")
+	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
+	assert.Less(t, ttl, orgttl, "Expected item TTL to be less than the original TTL")
+	assert.NotEqual(t, int(ttl), 0, "Expected item TTL to be not 0")
+}
+
+func TestCache_TestGetWithTTLAndLoaderFunction(t *testing.T) {
+	t.Parallel()
+	cache := NewCache()
+
+	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
+		return nil, 0, ErrNotFound
+	})
+
+	_, ttl, err := cache.GetWithTTL("1")
+	assert.Equal(t, ErrNotFound, err, "Expected error to be ErrNotFound")
+	assert.Equal(t, int(ttl), 0, "Expected item TTL to be 0")
+
+	orgttl := time.Duration(1 * time.Second)
+	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
+		return "1", orgttl, nil
+	})
+
+	value, ttl, found := cache.GetWithTTL("1")
+	assert.Equal(t, nil, found)
+	assert.Equal(t, "1", value)
+	assert.Equal(t, ttl, orgttl, "Expected item TTL to be the same as the original TTL")
+	cache.Close()
+
+	value, ttl, found = cache.GetWithTTL("1")
+	assert.Equal(t, ErrClosed, found)
+	assert.Equal(t, nil, value)
+	assert.Equal(t, int(ttl), 0, "Expected returned ttl for an ErrClosed err to be 0")
 }
 
 func TestCacheGetKeys(t *testing.T) {
