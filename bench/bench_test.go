@@ -24,7 +24,9 @@ func BenchmarkCacheSetWithGlobalTTL(b *testing.B) {
 	cache := ttlcache.NewCache()
 	defer cache.Close()
 
-	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	if cache.SetTTL(time.Duration(50*time.Millisecond)) != nil {
+		b.Error("Can not set TTL to the cache")
+	}
 	for n := 0; n < b.N; n++ {
 		err := cache.Set(fmt.Sprint(n%1000000), "value")
 		if err != nil {

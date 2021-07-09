@@ -30,7 +30,7 @@ jobs:
         version: latest
         skip-build-cache: true
         skip-pkg-cache: true
-
+        args: "--skip-files cache_test.go"
     - name: Tests
       run: |
         go test -cover -race -count=1 -timeout=30s -run ./...
