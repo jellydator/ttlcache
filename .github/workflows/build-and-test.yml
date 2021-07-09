@@ -31,9 +31,6 @@ jobs:
         skip-build-cache: true
         skip-pkg-cache: true
 
-    - name: Build
-      run: go build -v ./...
-
     - name: Tests
       run: |
         go test -cover -race -count=1 -timeout=30s -run ./...
