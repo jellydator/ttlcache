@@ -1,11 +1,11 @@
 
-name: build and test
+name: go-ci
 
 on:
   pull_request:
     branches: [ master ]
 jobs:
-  build:
+  go-ci:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -38,7 +38,8 @@ jobs:
 
     - name: Benchmark Tests
       run: |
-        cd bench; go test -run=Bench.* -bench=. -benchmem; cd..
+        cd bench
+        go test -run=Bench.* -bench=. -benchmem
 
     - name: Send Coverage
       uses: shogo82148/actions-goveralls@v1
