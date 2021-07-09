@@ -457,9 +457,6 @@ func (cache *Cache) SetLoaderFunction(loader LoaderFunction) {
 func (cache *Cache) Purge() error {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
-	if cache.isShutDown {
-		return ErrClosed
-	}
 	cache.metrics.Evicted += int64(len(cache.items))
 	cache.items = make(map[string]*item)
 	cache.priorityQueue = newPriorityQueue()

@@ -414,7 +414,6 @@ func TestCache_ModifyAfterClose(t *testing.T) {
 	assert.Equal(t, ErrClosed, getErr)
 	assert.Equal(t, ErrClosed, cache.Set("broken", 1))
 	assert.Equal(t, ErrClosed, cache.Remove("broken2"))
-	assert.Equal(t, ErrClosed, cache.Purge())
 	assert.Equal(t, ErrClosed, cache.SetWithTTL("broken", 2, time.Minute))
 	assert.Equal(t, ErrClosed, cache.SetTTL(time.Hour))
 	assert.Equal(t, 0, cache.Count())
