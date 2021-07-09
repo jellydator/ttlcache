@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"sync"
 
-	. "github.com/ReneKroon/ttlcache/v2"
+	. "github.com/asgarciap/ttlcache/v2"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -25,12 +25,17 @@ func TestCache_SimpleCache(t *testing.T) {
 	t.Parallel()
 	var cache SimpleCache = NewCache()
 
-	cache.SetTTL(time.Second)
-	cache.Set("k", "v")
-	cache.Get("k")
-	cache.Purge()
-	cache.Close()
-
+	var er error
+	er = cache.SetTTL(time.Second)
+	assert.Nil(t, er)
+	er = cache.Set("k", "v")
+	assert.Nil(t, er)
+	_, er = cache.Get("k")
+	assert.Nil(t, er)
+	er = cache.Purge()
+	assert.Nil(t, er)
+	er = cache.Close()
+	assert.Nil(t, er)
 }
 
 // Issue 45 : This test was used to test different code paths for best performance.
@@ -38,7 +43,8 @@ func TestCache_GetByLoaderRace(t *testing.T) {
 	t.Skip()
 	t.Parallel()
 	cache := NewCache()
-	cache.SetTTL(time.Microsecond)
+	er := cache.SetTTL(time.Microsecond)
+	assert.Nil(t, er)
 	defer cache.Close()
 
 	loaderInvocations := uint64(0)
@@ -408,7 +414,6 @@ func TestCache_ModifyAfterClose(t *testing.T) {
 	assert.Equal(t, ErrClosed, getErr)
 	assert.Equal(t, ErrClosed, cache.Set("broken", 1))
 	assert.Equal(t, ErrClosed, cache.Remove("broken2"))
-	assert.Equal(t, ErrClosed, cache.Purge())
 	assert.Equal(t, ErrClosed, cache.SetWithTTL("broken", 2, time.Minute))
 	assert.Equal(t, ErrClosed, cache.SetTTL(time.Hour))
 	assert.Equal(t, 0, cache.Count())

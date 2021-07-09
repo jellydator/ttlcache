@@ -1,0 +1,49 @@
+
+name: go-ci
+
+on:
+  pull_request:
+    branches: [ master ]
+jobs:
+  go-ci:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+        
+    - name: Setup Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.16
+    - name: Install dependencies
+      run: |
+        go install -race std
+        go install golang.org/x/tools/cmd/cover
+        go install golang.org/x/lint/golint
+        export PATH=$HOME/gopath/bin:$PATH
+        go get golang.org/x/tools/cmd/cover
+        go get github.com/mattn/goveralls
+
+    - name: Go Lint  
+      uses: golangci/golangci-lint-action@v2
+      with:
+        version: latest
+        skip-build-cache: true
+        skip-pkg-cache: true
+        args: "--skip-files cache_test.go"
+    - name: Tests
+      run: |
+        go test -cover -race -count=1 -timeout=30s -run ./...
+        go test -covermode=count -coverprofile=coverage.out -timeout=90s -run ./...
+
+    - name: Benchmark Tests
+      run: |
+        cd bench
+        go test -run=Bench.* -bench=. -benchmem
+
+    - name: Send Coverage
+      uses: shogo82148/actions-goveralls@v1
+      with:
+        path-to-profile: coverage.out
+        flag-name: GO-1.16
+
