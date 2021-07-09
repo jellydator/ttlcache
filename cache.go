@@ -214,6 +214,7 @@ func (cache *Cache) cleanjob() {
 // The cache is no longer cleaning up after the first call to Close, repeated calls are safe and return ErrClosed.
 func (cache *Cache) Close() error {
 	cache.mutex.Lock()
+	var err error
 	if !cache.isShutDown {
 		cache.isShutDown = true
 		cache.mutex.Unlock()
@@ -221,12 +222,12 @@ func (cache *Cache) Close() error {
 		cache.shutdownSignal <- feedback
 		<-feedback
 		close(cache.shutdownSignal)
-		cache.Purge()
+		err = cache.Purge()
 	} else {
 		cache.mutex.Unlock()
-		return ErrClosed
+		err = ErrClosed
 	}
-	return nil
+	return err
 }
 
 // Set is a thread-safe way to add new items to the map.

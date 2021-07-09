@@ -25,12 +25,17 @@ func TestCache_SimpleCache(t *testing.T) {
 	t.Parallel()
 	var cache SimpleCache = NewCache()
 
-	cache.SetTTL(time.Second)
-	cache.Set("k", "v")
-	cache.Get("k")
-	cache.Purge()
-	cache.Close()
-
+	var er error
+	er = cache.SetTTL(time.Second)
+	assert.Nil(t, er)
+	er = cache.Set("k", "v")
+	assert.Nil(t, er)
+	_, er = cache.Get("k")
+	assert.Nil(t, er)
+	er = cache.Purge()
+	assert.Nil(t, er)
+	er = cache.Close()
+	assert.Nil(t, er)
 }
 
 // Issue 45 : This test was used to test different code paths for best performance.
@@ -38,7 +43,8 @@ func TestCache_GetByLoaderRace(t *testing.T) {
 	t.Skip()
 	t.Parallel()
 	cache := NewCache()
-	cache.SetTTL(time.Microsecond)
+	er := cache.SetTTL(time.Microsecond)
+	assert.Nil(t, er)
 	defer cache.Close()
 
 	loaderInvocations := uint64(0)
