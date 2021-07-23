@@ -95,19 +95,56 @@ func TestCache_GetByLoader(t *testing.T) {
 
 	cache.Remove("test")
 
-	localKey, _, _ := cache.GetByLoader("test", localLoader)
+	localKey, _ := cache.GetByLoader("test", localLoader)
 	assert.Equal(t, "local", localKey)
 
 	cache.Remove("test")
 
-	globalKey, _, _ := cache.GetByLoader("test", globalLoader)
+	globalKey, _ := cache.GetByLoader("test", globalLoader)
 	assert.Equal(t, "global", globalKey)
 
 	cache.Remove("test")
 
-	defaultKey, _, _ := cache.GetByLoader("test", nil)
+	defaultKey, _ := cache.GetByLoader("test", nil)
 	assert.Equal(t, "global", defaultKey)
 
+	cache.Remove("test")
+}
+
+func TestCache_GetByLoaderWithTtl(t *testing.T) {
+	t.Parallel()
+	cache := NewCache()
+	defer cache.Close()
+
+	globalTtl := time.Duration(time.Minute)
+	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
+		return "global", globalTtl, nil
+	}
+	cache.SetLoaderFunction(globalLoader)
+
+	localTtl := time.Duration(time.Hour)
+	localLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
+		return "local", localTtl, nil
+	}
+
+	key, ttl, _ := cache.GetWithTTL("test")
+	assert.Equal(t, "global", key)
+	assert.Equal(t, ttl, globalTtl)
+	cache.Remove("test")
+
+	localKey, ttl2, _ := cache.GetByLoaderWithTtl("test", localLoader)
+	assert.Equal(t, "local", localKey)
+	assert.Equal(t, ttl2, localTtl)
+	cache.Remove("test")
+
+	globalKey, ttl3, _ := cache.GetByLoaderWithTtl("test", globalLoader)
+	assert.Equal(t, "global", globalKey)
+	assert.Equal(t, ttl3, globalTtl)
+	cache.Remove("test")
+
+	defaultKey, ttl4, _ := cache.GetByLoaderWithTtl("test", nil)
+	assert.Equal(t, "global", defaultKey)
+	assert.Equal(t, ttl4, globalTtl)
 	cache.Remove("test")
 }
 
