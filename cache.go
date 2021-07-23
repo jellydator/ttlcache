@@ -280,18 +280,68 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 // Get is a thread-safe way to lookup items
 // Every lookup, also touches the item, hence extending it's life
 func (cache *Cache) Get(key string) (interface{}, error) {
-	data, _, err := cache.GetByLoader(key, nil)
-	return data, err
+	return cache.GetByLoader(key, nil)
 }
 
 // GetWithTTL has exactly the same behaviour as Get but also returns
 // the remaining TTL for an specific item at the moment it its retrieved
 func (cache *Cache) GetWithTTL(key string) (interface{}, time.Duration, error) {
-	return cache.GetByLoader(key, nil)
+	return cache.GetByLoaderWithTtl(key, nil)
 }
 
 // GetByLoader can take a per key loader function (ie. to propagate context)
-func (cache *Cache) GetByLoader(key string, customLoaderFunction LoaderFunction) (interface{}, time.Duration, error) {
+func (cache *Cache) GetByLoader(key string, customLoaderFunction LoaderFunction) (interface{}, error) {
+	cache.mutex.Lock()
+	if cache.isShutDown {
+		cache.mutex.Unlock()
+		return nil, ErrClosed
+	}
+
+	cache.metrics.Hits++
+	item, exists, triggerExpirationNotification := cache.getItem(key)
+
+	var dataToReturn interface{}
+	if exists {
+		cache.metrics.Retrievals++
+		dataToReturn = item.data
+	}
+
+	var err error
+	if !exists {
+		cache.metrics.Misses++
+		err = ErrNotFound
+	}
+
+	loaderFunction := cache.loaderFunction
+	if customLoaderFunction != nil {
+		loaderFunction = customLoaderFunction
+	}
+
+	if loaderFunction == nil || exists {
+		cache.mutex.Unlock()
+	}
+
+	if loaderFunction != nil && !exists {
+		ch := cache.loaderLock.DoChan(key, func() (interface{}, error) {
+			// cache is not blocked during io
+			invokeData, _, err := cache.invokeLoader(key, loaderFunction)
+			return invokeData, err
+		})
+		cache.mutex.Unlock()
+		res := <-ch
+		dataToReturn = res.Val
+		err = res.Err
+	}
+
+	if triggerExpirationNotification {
+		cache.expirationNotification <- true
+	}
+
+	return dataToReturn, err
+}
+
+// GetByLoaderWithTtl can take a per key loader function (ie. to propagate context)
+func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFunction) (interface{}, time.Duration, error) {
 	cache.mutex.Lock()
 	if cache.isShutDown {
 		cache.mutex.Unlock()
