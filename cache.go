@@ -291,51 +291,7 @@ func (cache *Cache) GetWithTTL(key string) (interface{}, time.Duration, error) {
 
 // GetByLoader can take a per key loader function (ie. to propagate context)
 func (cache *Cache) GetByLoader(key string, customLoaderFunction LoaderFunction) (interface{}, error) {
-	cache.mutex.Lock()
-	if cache.isShutDown {
-		cache.mutex.Unlock()
-		return nil, ErrClosed
-	}
-
-	cache.metrics.Hits++
-	item, exists, triggerExpirationNotification := cache.getItem(key)
-
-	var dataToReturn interface{}
-	if exists {
-		cache.metrics.Retrievals++
-		dataToReturn = item.data
-	}
-
-	var err error
-	if !exists {
-		cache.metrics.Misses++
-		err = ErrNotFound
-	}
-
-	loaderFunction := cache.loaderFunction
-	if customLoaderFunction != nil {
-		loaderFunction = customLoaderFunction
-	}
-
-	if loaderFunction == nil || exists {
-		cache.mutex.Unlock()
-	}
-
-	if loaderFunction != nil && !exists {
-		ch := cache.loaderLock.DoChan(key, func() (interface{}, error) {
-			// cache is not blocked during io
-			invokeData, _, err := cache.invokeLoader(key, loaderFunction)
-			return invokeData, err
-		})
-		cache.mutex.Unlock()
-		res := <-ch
-		dataToReturn = res.Val
-		err = res.Err
-	}
-
-	if triggerExpirationNotification {
-		cache.expirationNotification <- true
-	}
+	dataToReturn, _, err := cache.GetByLoaderWithTtl(key, customLoaderFunction)
 
 	return dataToReturn, err
 }
