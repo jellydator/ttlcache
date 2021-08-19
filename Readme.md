@@ -15,7 +15,7 @@ TTLCache is a simple key/value cache in golang with the following functions:
 
 Note (issue #25): by default, due to historic reasons, the TTL will be reset on each cache hit and you need to explicitly configure the cache to use a TTL that will not get extended.
 
-[![Build Status](https://travis-ci.org/ReneKroon/ttlcache.svg?branch=master)](https://travis-ci.org/ReneKroon/ttlcache)
+[![Build Status](https://www.travis-ci.com/ReneKroon/ttlcache.svg?branch=master)](https://travis-ci.com/ReneKroon/ttlcache)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ReneKroon/ttlcache)](https://goreportcard.com/report/github.com/ReneKroon/ttlcache)
 [![Coverage Status](https://coveralls.io/repos/github/ReneKroon/ttlcache/badge.svg?branch=master)](https://coveralls.io/github/ReneKroon/ttlcache?branch=master)
 [![GitHub issues](https://img.shields.io/github/issues/ReneKroon/ttlcache.svg)](https://github.com/ReneKroon/ttlcache/issues)
