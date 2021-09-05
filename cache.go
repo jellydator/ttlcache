@@ -312,7 +312,11 @@ func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFu
 	if exists {
 		cache.metrics.Retrievals++
 		dataToReturn = item.data
-		ttlToReturn = time.Until(item.expireAt)
+		if !cache.skipTTLExtension {
+			ttlToReturn = item.ttl
+		} else {
+			ttlToReturn = time.Until(item.expireAt)
+		}
 		if ttlToReturn < 0 {
 			ttlToReturn = 0
 		}
