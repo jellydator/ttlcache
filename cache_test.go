@@ -854,6 +854,15 @@ func TestCacheGetWithTTL(t *testing.T) {
 	assert.NotNil(t, data, "Expected data to be not nil")
 	assert.Equal(t, nil, exists, "Expected data to exist")
 	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
+	assert.Equal(t, ttl, orgttl, "Expected item TTL to be original TTL")
+
+	cache.SkipTTLExtensionOnHit(true)
+	cache.SetWithTTL("hello", "world", orgttl)
+	time.Sleep(10 * time.Millisecond)
+	data, ttl, exists = cache.GetWithTTL("hello")
+	assert.NotNil(t, data, "Expected data to be not nil")
+	assert.Equal(t, nil, exists, "Expected data to exist")
+	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
 	assert.Less(t, ttl, orgttl, "Expected item TTL to be less than the original TTL")
 	assert.NotEqual(t, int(ttl), 0, "Expected item TTL to be not 0")
 }
