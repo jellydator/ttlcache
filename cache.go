@@ -11,7 +11,7 @@ import (
 type CheckExpireCallback func(key string, value interface{}) bool
 
 // ExpireCallback is used as a callback on item expiration or when notifying of an item new to the cache
-// Note that ExpireReasonCallback will be the succesor of this function in the next major release.
+// Note that ExpireReasonCallback will be the successor of this function in the next major release.
 type ExpireCallback func(key string, value interface{})
 
 // ExpireReasonCallback is used as a callback on item expiration with extra information why the item expired.
@@ -278,25 +278,25 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 }
 
 // Get is a thread-safe way to lookup items
-// Every lookup, also touches the item, hence extending it's life
+// Every lookup, also touches the item, hence extending its life
 func (cache *Cache) Get(key string) (interface{}, error) {
 	return cache.GetByLoader(key, nil)
 }
 
 // GetWithTTL has exactly the same behaviour as Get but also returns
-// the remaining TTL for an specific item at the moment it its retrieved
+// the remaining TTL for a specific item at the moment its retrieved
 func (cache *Cache) GetWithTTL(key string) (interface{}, time.Duration, error) {
 	return cache.GetByLoaderWithTtl(key, nil)
 }
 
-// GetByLoader can take a per key loader function (ie. to propagate context)
+// GetByLoader can take a per key loader function (i.e. to propagate context)
 func (cache *Cache) GetByLoader(key string, customLoaderFunction LoaderFunction) (interface{}, error) {
 	dataToReturn, _, err := cache.GetByLoaderWithTtl(key, customLoaderFunction)
 
 	return dataToReturn, err
 }
 
-// GetByLoaderWithTtl can take a per key loader function (ie. to propagate context)
+// GetByLoaderWithTtl can take a per key loader function (i.e. to propagate context)
 func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFunction) (interface{}, time.Duration, error) {
 	cache.mutex.Lock()
 	if cache.isShutDown {
