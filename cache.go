@@ -86,14 +86,16 @@ func (cache *Cache) getItem(key string) (*item, bool, bool) {
 		return nil, false, false
 	}
 
+	if cache.skipTTLExtension {
+		return item, true, false
+	}
+
 	if item.ttl >= 0 && (item.ttl > 0 || cache.ttl > 0) {
 		if cache.ttl > 0 && item.ttl == 0 {
 			item.ttl = cache.ttl
 		}
 
-		if !cache.skipTTLExtension {
-			item.touch()
-		}
+		item.touch()
 		cache.priorityQueue.update(item)
 	}
 
