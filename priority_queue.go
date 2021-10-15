@@ -14,6 +14,18 @@ type priorityQueue struct {
 	items []*item
 }
 
+func (pq *priorityQueue) isEmpty() bool {
+	return len(pq.items) == 0
+}
+
+func (pq *priorityQueue) root() *item {
+	if len(pq.items) == 0 {
+		return nil
+	}
+
+	return pq.items[0]
+}
+
 func (pq *priorityQueue) update(item *item) {
 	heap.Fix(pq, item.queueIndex)
 }

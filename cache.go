@@ -86,21 +86,25 @@ func (cache *Cache) getItem(key string) (*item, bool, bool) {
 		return nil, false, false
 	}
 
-	if cache.skipTTLExtension {
+	// no need to change priority queue when skipTTLExtension is true or the item will not expire
+	if cache.skipTTLExtension || (item.ttl == 0 && cache.ttl == 0) {
 		return item, true, false
 	}
 
-	if item.ttl >= 0 && (item.ttl > 0 || cache.ttl > 0) {
-		if cache.ttl > 0 && item.ttl == 0 {
-			item.ttl = cache.ttl
-		}
-
-		item.touch()
-		cache.priorityQueue.update(item)
+	if item.ttl == 0 {
+		item.ttl = cache.ttl
 	}
 
+	item.touch()
+
+	oldExpireTime := cache.priorityQueue.root().expireAt
+	cache.priorityQueue.update(item)
+	nowExpireTime := cache.priorityQueue.root().expireAt
+
 	expirationNotification := false
-	if cache.expirationTime.After(time.Now().Add(item.ttl)) {
+
+	// notify expiration only if the latest expire time is changed
+	if (oldExpireTime.IsZero() && !nowExpireTime.IsZero()) || oldExpireTime.After(nowExpireTime) {
 		expirationNotification = true
 	}
 	return item, exists, expirationNotification
@@ -112,8 +116,8 @@ func (cache *Cache) startExpirationProcessing() {
 		var sleepTime time.Duration
 		cache.mutex.Lock()
 		if cache.priorityQueue.Len() > 0 {
-			sleepTime = time.Until(cache.priorityQueue.items[0].expireAt)
-			if sleepTime < 0 && cache.priorityQueue.items[0].expireAt.IsZero() {
+			sleepTime = time.Until(cache.priorityQueue.root().expireAt)
+			if sleepTime < 0 && cache.priorityQueue.root().expireAt.IsZero() {
 				sleepTime = time.Hour
 			} else if sleepTime < 0 {
 				sleepTime = time.Microsecond
@@ -174,7 +178,6 @@ func (cache *Cache) removeItem(item *item, reason EvictionReason) {
 	cache.checkExpirationCallback(item, reason)
 	cache.priorityQueue.remove(item)
 	delete(cache.items, item.key)
-
 }
 
 func (cache *Cache) evictjob(reason EvictionReason) {
@@ -246,6 +249,11 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 	}
 	item, exists, _ := cache.getItem(key)
 
+	oldExpireTime := time.Time{}
+	if !cache.priorityQueue.isEmpty() {
+		oldExpireTime = cache.priorityQueue.root().expireAt
+	}
+
 	if exists {
 		item.data = data
 		item.ttl = ttl
@@ -258,12 +266,11 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 	}
 	cache.metrics.Inserted++
 
-	if item.ttl >= 0 && (item.ttl > 0 || cache.ttl > 0) {
-		if cache.ttl > 0 && item.ttl == 0 {
-			item.ttl = cache.ttl
-		}
-		item.touch()
+	if item.ttl == 0 {
+		item.ttl = cache.ttl
 	}
+
+	item.touch()
 
 	if exists {
 		cache.priorityQueue.update(item)
@@ -271,11 +278,17 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 		cache.priorityQueue.push(item)
 	}
 
+	nowExpireTime := cache.priorityQueue.root().expireAt
+
 	cache.mutex.Unlock()
 	if !exists && cache.newItemCallback != nil {
 		cache.newItemCallback(key, data)
 	}
-	cache.expirationNotification <- true
+
+	// notify expiration only if the latest expire time is changed
+	if (oldExpireTime.IsZero() && !nowExpireTime.IsZero()) || oldExpireTime.After(nowExpireTime) {
+		cache.expirationNotification <- true
+	}
 	return nil
 }
 
