@@ -44,6 +44,7 @@ type Cache struct {
 	newItemCallback        ExpireCallback
 	priorityQueue          *priorityQueue
 	expirationNotification chan bool
+	hasNotified            bool
 	expirationTime         time.Time
 	skipTTLExtension       bool
 	shutdownSignal         chan (chan struct{})
@@ -115,6 +116,7 @@ func (cache *Cache) startExpirationProcessing() {
 	for {
 		var sleepTime time.Duration
 		cache.mutex.Lock()
+		cache.hasNotified = false
 		if cache.priorityQueue.Len() > 0 {
 			sleepTime = time.Until(cache.priorityQueue.root().expireAt)
 			if sleepTime < 0 && cache.priorityQueue.root().expireAt.IsZero() {
@@ -287,7 +289,7 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 
 	// notify expiration only if the latest expire time is changed
 	if (oldExpireTime.IsZero() && !nowExpireTime.IsZero()) || oldExpireTime.After(nowExpireTime) {
-		cache.expirationNotification <- true
+		cache.notifyExpiration()
 	}
 	return nil
 }
@@ -374,10 +376,22 @@ func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFu
 	}
 
 	if triggerExpirationNotification {
-		cache.expirationNotification <- true
+		cache.notifyExpiration()
 	}
 
 	return dataToReturn, ttlToReturn, err
+}
+
+func (cache *Cache) notifyExpiration() {
+	cache.mutex.Lock()
+	if cache.hasNotified {
+		cache.mutex.Unlock()
+		return
+	}
+	cache.hasNotified = true
+	cache.mutex.Unlock()
+
+	cache.expirationNotification <- true
 }
 
 func (cache *Cache) invokeLoader(key string, loaderFunction LoaderFunction) (dataToReturn interface{}, ttl time.Duration, err error) {
@@ -447,7 +461,7 @@ func (cache *Cache) SetTTL(ttl time.Duration) error {
 	}
 	cache.ttl = ttl
 	cache.mutex.Unlock()
-	cache.expirationNotification <- true
+	cache.notifyExpiration()
 	return nil
 }
 
@@ -528,7 +542,7 @@ func NewCache() *Cache {
 		items:                  make(map[string]*item),
 		loaderLock:             &singleflight.Group{},
 		priorityQueue:          newPriorityQueue(),
-		expirationNotification: make(chan bool),
+		expirationNotification: make(chan bool, 1),
 		expirationTime:         time.Now(),
 		shutdownSignal:         shutdownChan,
 		isShutDown:             false,
