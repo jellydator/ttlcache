@@ -34,24 +34,30 @@ type SimpleCache interface {
 
 // Cache is a synchronized map of items that can auto-expire once stale
 type Cache struct {
-	mutex                  sync.Mutex
-	ttl                    time.Duration
-	items                  map[string]*item
-	loaderLock             *singleflight.Group
-	expireCallback         ExpireCallback
-	expireReasonCallback   ExpireReasonCallback
-	checkExpireCallback    CheckExpireCallback
-	newItemCallback        ExpireCallback
+	// mutex is shared for all operations that need to be safe
+	mutex sync.Mutex
+	// ttl is the global ttl for the cache, can be zero (is infinite)
+	ttl time.Duration
+	// actual item storage
+	items map[string]*item
+	// lock used to avoid fetching a remote item multiple times
+	loaderLock           *singleflight.Group
+	expireCallback       ExpireCallback
+	expireReasonCallback ExpireReasonCallback
+	checkExpireCallback  CheckExpireCallback
+	newItemCallback      ExpireCallback
+	// the queue is used to have an ordered structure to use for expiration and cleanup.
 	priorityQueue          *priorityQueue
 	expirationNotification chan bool
-	hasNotified            bool
-	expirationTime         time.Time
-	skipTTLExtension       bool
-	shutdownSignal         chan (chan struct{})
-	isShutDown             bool
-	loaderFunction         LoaderFunction
-	sizeLimit              int
-	metrics                Metrics
+	// hasNotified is used to not schedule new expiration processing when an request is already pending.
+	hasNotified      bool
+	expirationTime   time.Time
+	skipTTLExtension bool
+	shutdownSignal   chan (chan struct{})
+	isShutDown       bool
+	loaderFunction   LoaderFunction
+	sizeLimit        int
+	metrics          Metrics
 }
 
 // EvictionReason is an enum that explains why an item was evicted
