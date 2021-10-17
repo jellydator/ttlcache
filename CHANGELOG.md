@@ -1,3 +1,15 @@
+# 2.9.0 (October 2021)
+
+#55,#56,#57 : @chenyahui was on fire and greatly improved the peformance of the library. He also got rid of the blocking call to expirationNotification, making the code run twice as fast in the benchmarks!
+
+# 2.8.1 (September 2021)
+
+#53 : Avoids recalculation of TTL value returned in API when TTL is extended. by @iczc
+
+# 2.8.0 (August 2021)
+
+#51 : The call GetWithTTL(key string) (interface{}, time.Duration, error) is added so that you can retrieve an item, and also know the remaining TTL. Thanks to @asgarciap for contributing.
+
 # 2.7.0 (June 2021)
 
 #46 : got panic
