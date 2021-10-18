@@ -51,7 +51,6 @@ type Cache struct {
 	expirationNotification chan bool
 	// hasNotified is used to not schedule new expiration processing when an request is already pending.
 	hasNotified      bool
-	expirationTime   time.Time
 	skipTTLExtension bool
 	shutdownSignal   chan (chan struct{})
 	isShutDown       bool
@@ -140,7 +139,6 @@ func (cache *Cache) startExpirationProcessing() {
 			sleepTime = time.Hour
 		}
 
-		cache.expirationTime = time.Now().Add(sleepTime)
 		cache.mutex.Unlock()
 
 		timer.Reset(sleepTime)
@@ -549,7 +547,6 @@ func NewCache() *Cache {
 		loaderLock:             &singleflight.Group{},
 		priorityQueue:          newPriorityQueue(),
 		expirationNotification: make(chan bool, 1),
-		expirationTime:         time.Now(),
 		shutdownSignal:         shutdownChan,
 		isShutDown:             false,
 		loaderFunction:         nil,
