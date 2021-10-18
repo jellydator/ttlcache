@@ -34,8 +34,8 @@ type SimpleCache interface {
 
 // Cache is a synchronized map of items that can auto-expire once stale
 type Cache struct {
-	// mutex is shared for all operations that need to be safe
-	mutex sync.Mutex
+	// rwMutex is shared for all operations that need to be safe
+	rwMutex sync.RWMutex
 	// ttl is the global ttl for the cache, can be zero (is infinite)
 	ttl time.Duration
 	// actual item storage
@@ -120,7 +120,7 @@ func (cache *Cache) startExpirationProcessing() {
 	timer := time.NewTimer(time.Hour)
 	for {
 		var sleepTime time.Duration
-		cache.mutex.Lock()
+		cache.rwMutex.RLock()
 		cache.hasNotified = false
 		if cache.priorityQueue.Len() > 0 {
 			sleepTime = time.Until(cache.priorityQueue.root().expireAt)
@@ -139,29 +139,29 @@ func (cache *Cache) startExpirationProcessing() {
 			sleepTime = time.Hour
 		}
 
-		cache.mutex.Unlock()
+		cache.rwMutex.RUnlock()
 
 		timer.Reset(sleepTime)
 		select {
 		case shutdownFeedback := <-cache.shutdownSignal:
 			timer.Stop()
-			cache.mutex.Lock()
+			cache.rwMutex.Lock()
 			if cache.priorityQueue.Len() > 0 {
 				cache.evictjob(Closed)
 			}
-			cache.mutex.Unlock()
+			cache.rwMutex.Unlock()
 			shutdownFeedback <- struct{}{}
 			return
 		case <-timer.C:
 			timer.Stop()
-			cache.mutex.Lock()
+			cache.rwMutex.Lock()
 			if cache.priorityQueue.Len() == 0 {
-				cache.mutex.Unlock()
+				cache.rwMutex.Unlock()
 				continue
 			}
 
 			cache.cleanjob()
-			cache.mutex.Unlock()
+			cache.rwMutex.Unlock()
 
 		case <-cache.expirationNotification:
 			timer.Stop()
@@ -225,17 +225,17 @@ func (cache *Cache) cleanjob() {
 // Close calls Purge after stopping the goroutine that does ttl checking, for a clean shutdown.
 // The cache is no longer cleaning up after the first call to Close, repeated calls are safe and return ErrClosed.
 func (cache *Cache) Close() error {
-	cache.mutex.Lock()
+	cache.rwMutex.Lock()
 	if !cache.isShutDown {
 		cache.isShutDown = true
-		cache.mutex.Unlock()
+		cache.rwMutex.Unlock()
 		feedback := make(chan struct{})
 		cache.shutdownSignal <- feedback
 		<-feedback
 		close(cache.shutdownSignal)
 		cache.Purge()
 	} else {
-		cache.mutex.Unlock()
+		cache.rwMutex.Unlock()
 		return ErrClosed
 	}
 	return nil
@@ -248,9 +248,9 @@ func (cache *Cache) Set(key string, data interface{}) error {
 
 // SetWithTTL is a thread-safe way to add new items to the map with individual ttl.
 func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) error {
-	cache.mutex.Lock()
+	cache.rwMutex.Lock()
 	if cache.isShutDown {
-		cache.mutex.Unlock()
+		cache.rwMutex.Unlock()
 		return ErrClosed
 	}
 	item, exists, _ := cache.getItem(key)
@@ -286,7 +286,7 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 
 	nowExpireTime := cache.priorityQueue.root().expireAt
 
-	cache.mutex.Unlock()
+	cache.rwMutex.Unlock()
 	if !exists && cache.newItemCallback != nil {
 		cache.newItemCallback(key, data)
 	}
@@ -319,9 +319,15 @@ func (cache *Cache) GetByLoader(key string, customLoaderFunction LoaderFunction)
 
 // GetByLoaderWithTtl can take a per key loader function (i.e. to propagate context)
 func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFunction) (interface{}, time.Duration, error) {
-	cache.mutex.Lock()
+	var locker sync.Locker
+	locker = &cache.rwMutex
+	if cache.skipTTLExtension {
+		locker = cache.rwMutex.RLocker()
+	}
+
+	locker.Lock()
 	if cache.isShutDown {
-		cache.mutex.Unlock()
+		locker.Unlock()
 		return nil, 0, ErrClosed
 	}
 
@@ -355,10 +361,12 @@ func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFu
 	}
 
 	if loaderFunction == nil || exists {
-		cache.mutex.Unlock()
+		locker.Unlock()
 	}
 
 	if loaderFunction != nil && !exists {
+		locker.Unlock()
+
 		type loaderResult struct {
 			data interface{}
 			ttl  time.Duration
@@ -372,7 +380,6 @@ func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFu
 			}
 			return lr, err
 		})
-		cache.mutex.Unlock()
 		res := <-ch
 		dataToReturn = res.Val.(*loaderResult).data
 		ttlToReturn = res.Val.(*loaderResult).ttl
@@ -387,13 +394,13 @@ func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFu
 }
 
 func (cache *Cache) notifyExpiration() {
-	cache.mutex.Lock()
+	cache.rwMutex.Lock()
 	if cache.hasNotified {
-		cache.mutex.Unlock()
+		cache.rwMutex.Unlock()
 		return
 	}
 	cache.hasNotified = true
-	cache.mutex.Unlock()
+	cache.rwMutex.Unlock()
 
 	cache.expirationNotification <- true
 }
@@ -411,8 +418,8 @@ func (cache *Cache) invokeLoader(key string, loaderFunction LoaderFunction) (dat
 
 // Remove removes an item from the cache if it exists, triggers expiration callback when set. Can return ErrNotFound if the entry was not present.
 func (cache *Cache) Remove(key string) error {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
+	cache.rwMutex.Lock()
+	defer cache.rwMutex.Unlock()
 	if cache.isShutDown {
 		return ErrClosed
 	}
@@ -428,8 +435,8 @@ func (cache *Cache) Remove(key string) error {
 
 // Count returns the number of items in the cache. Returns zero when the cache has been closed.
 func (cache *Cache) Count() int {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
+	cache.rwMutex.Lock()
+	defer cache.rwMutex.Unlock()
 
 	if cache.isShutDown {
 		return 0
@@ -440,8 +447,8 @@ func (cache *Cache) Count() int {
 
 // GetKeys returns all keys of items in the cache. Returns nil when the cache has been closed.
 func (cache *Cache) GetKeys() []string {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
+	cache.rwMutex.Lock()
+	defer cache.rwMutex.Unlock()
 
 	if cache.isShutDown {
 		return nil
@@ -457,44 +464,44 @@ func (cache *Cache) GetKeys() []string {
 
 // SetTTL sets the global TTL value for items in the cache, which can be overridden at the item level.
 func (cache *Cache) SetTTL(ttl time.Duration) error {
-	cache.mutex.Lock()
+	cache.rwMutex.Lock()
 
 	if cache.isShutDown {
-		cache.mutex.Unlock()
+		cache.rwMutex.Unlock()
 		return ErrClosed
 	}
 	cache.ttl = ttl
-	cache.mutex.Unlock()
+	cache.rwMutex.Unlock()
 	cache.notifyExpiration()
 	return nil
 }
 
 // SetExpirationCallback sets a callback that will be called when an item expires
 func (cache *Cache) SetExpirationCallback(callback ExpireCallback) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
+	cache.rwMutex.Lock()
+	defer cache.rwMutex.Unlock()
 	cache.expireCallback = callback
 }
 
 // SetExpirationReasonCallback sets a callback that will be called when an item expires, includes reason of expiry
 func (cache *Cache) SetExpirationReasonCallback(callback ExpireReasonCallback) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
+	cache.rwMutex.Lock()
+	defer cache.rwMutex.Unlock()
 	cache.expireReasonCallback = callback
 }
 
 // SetCheckExpirationCallback sets a callback that will be called when an item is about to expire
 // in order to allow external code to decide whether the item expires or remains for another TTL cycle
 func (cache *Cache) SetCheckExpirationCallback(callback CheckExpireCallback) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
+	cache.rwMutex.Lock()
+	defer cache.rwMutex.Unlock()
 	cache.checkExpireCallback = callback
 }
 
 // SetNewItemCallback sets a callback that will be called when a new item is added to the cache
 func (cache *Cache) SetNewItemCallback(callback ExpireCallback) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
+	cache.rwMutex.Lock()
+	defer cache.rwMutex.Unlock()
 	cache.newItemCallback = callback
 }
 
@@ -502,23 +509,23 @@ func (cache *Cache) SetNewItemCallback(callback ExpireCallback) {
 // no longer extend TTL of items when they are retrieved using Get, or when their expiration condition is evaluated
 // using SetCheckExpirationCallback.
 func (cache *Cache) SkipTTLExtensionOnHit(value bool) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
+	cache.rwMutex.Lock()
+	defer cache.rwMutex.Unlock()
 	cache.skipTTLExtension = value
 }
 
 // SetLoaderFunction allows you to set a function to retrieve cache misses. The signature matches that of the Get function.
 // Additional Get calls on the same key block while fetching is in progress (groupcache style).
 func (cache *Cache) SetLoaderFunction(loader LoaderFunction) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
+	cache.rwMutex.Lock()
+	defer cache.rwMutex.Unlock()
 	cache.loaderFunction = loader
 }
 
 // Purge will remove all entries
 func (cache *Cache) Purge() error {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
+	cache.rwMutex.Lock()
+	defer cache.rwMutex.Unlock()
 	if cache.isShutDown {
 		return ErrClosed
 	}
@@ -532,8 +539,8 @@ func (cache *Cache) Purge() error {
 // If a new item is getting cached, the closes item to being timed out will be replaced
 // Set to 0 to turn off
 func (cache *Cache) SetCacheSizeLimit(limit int) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
+	cache.rwMutex.Lock()
+	defer cache.rwMutex.Unlock()
 	cache.sizeLimit = limit
 }
 
@@ -559,15 +566,15 @@ func NewCache() *Cache {
 
 // GetMetrics exposes the metrics of the cache. This is a snapshot copy of the metrics.
 func (cache *Cache) GetMetrics() Metrics {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
+	cache.rwMutex.Lock()
+	defer cache.rwMutex.Unlock()
 	return cache.metrics
 }
 
 // Touch resets the TTL of the key when it exists, returns ErrNotFound if the key is not present.
 func (cache *Cache) Touch(key string) error {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
+	cache.rwMutex.Lock()
+	defer cache.rwMutex.Unlock()
 	item, exists := cache.items[key]
 	if !exists {
 		return ErrNotFound
@@ -582,3 +589,5 @@ func min(duration time.Duration, second time.Duration) time.Duration {
 	}
 	return second
 }
+
+const Version = "2.9.1"
