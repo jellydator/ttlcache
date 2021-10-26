@@ -180,7 +180,7 @@ func (cache *Cache) checkExpirationCallback(item *item, reason EvictionReason) {
 }
 
 func (cache *Cache) removeItem(item *item, reason EvictionReason) {
-	cache.metrics.Evicted++
+	cache.metrics.IncEvicted()
 	cache.checkExpirationCallback(item, reason)
 	cache.priorityQueue.remove(item)
 	delete(cache.items, item.key)
@@ -270,7 +270,7 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 		item = newItem(key, data, ttl)
 		cache.items[key] = item
 	}
-	cache.metrics.Inserted++
+	cache.metrics.IncInserted()
 
 	if item.ttl == 0 {
 		item.ttl = cache.ttl
@@ -331,13 +331,13 @@ func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFu
 		return nil, 0, ErrClosed
 	}
 
-	cache.metrics.Hits++
+	cache.metrics.IncHits()
 	item, exists, triggerExpirationNotification := cache.getItem(key)
 
 	var dataToReturn interface{}
 	ttlToReturn := time.Duration(0)
 	if exists {
-		cache.metrics.Retrievals++
+		cache.metrics.IncRetrievals()
 		dataToReturn = item.data
 		if !cache.skipTTLExtension {
 			ttlToReturn = item.ttl
@@ -351,7 +351,7 @@ func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFu
 
 	var err error
 	if !exists {
-		cache.metrics.Misses++
+		cache.metrics.IncMisses()
 		err = ErrNotFound
 	}
 
@@ -529,7 +529,7 @@ func (cache *Cache) Purge() error {
 	if cache.isShutDown {
 		return ErrClosed
 	}
-	cache.metrics.Evicted += int64(len(cache.items))
+	cache.metrics.AddEvicted(int64(len(cache.items)))
 	cache.items = make(map[string]*item)
 	cache.priorityQueue = newPriorityQueue()
 	return nil

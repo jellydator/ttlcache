@@ -243,13 +243,13 @@ func TestCache_TestMetrics(t *testing.T) {
 	cache.Get("myMiss")
 
 	metrics := cache.GetMetrics()
-	assert.Equal(t, int64(2), metrics.Inserted)
-	assert.Equal(t, int64(1), metrics.Misses)
-	assert.Equal(t, int64(2), metrics.Hits)
-	assert.Equal(t, int64(1), metrics.Retrievals)
+	assert.Equal(t, int64(2), metrics.GetInserted())
+	assert.Equal(t, int64(1), metrics.GetMisses())
+	assert.Equal(t, int64(2), metrics.GetHits())
+	assert.Equal(t, int64(1), metrics.GetRetrievals())
 	cache.Purge()
 	metrics = cache.GetMetrics()
-	assert.Equal(t, int64(2), metrics.Evicted)
+	assert.Equal(t, int64(2), metrics.GetEvicted())
 
 	cache.SetWithTTL("3", "3", time.Nanosecond)
 	cache.SetWithTTL("4", "4", time.Nanosecond)
@@ -257,7 +257,7 @@ func TestCache_TestMetrics(t *testing.T) {
 	time.Sleep(time.Millisecond * 10)
 
 	metrics = cache.GetMetrics()
-	assert.Equal(t, int64(4), metrics.Evicted)
+	assert.Equal(t, int64(4), metrics.GetEvicted())
 
 }
 
