@@ -19,5 +19,5 @@ script:
   - golint .
   - go test -cover -race -count=1 -timeout=30s -run .
   - go test -covermode=count -coverprofile=coverage.out -timeout=90s -run .
-  - '[ ! -z "$COVERALLS_TOKEN" ] && $HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN'
+  - if [ "$TRAVIS_BRANCH" = "master" ]; then $HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN; fi
   - cd bench; go test -run=Bench.* -bench=. -benchmem; cd ..
