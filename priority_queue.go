@@ -78,6 +78,8 @@ func (pq *priorityQueue) Pop() interface{} {
 	n := len(old)
 	item := old[n-1]
 	item.queueIndex = -1
+	// de-reference the element to be popped for Garbage Collector to de-allocate the memory
+	old[n-1] = nil
 	pq.items = old[0 : n-1]
 	return item
 }
