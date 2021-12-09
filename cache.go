@@ -117,8 +117,8 @@ func (cache *Cache) getItem(key string) (*item, bool, bool) {
 	return item, exists, expirationNotification
 }
 
-func (cache *Cache) startExpirationProcessing() {
-	timer := time.NewTimer(time.Hour)
+func (cache *Cache) startExpirationProcessing(t time.Duration) {
+	timer := time.NewTimer(t)
 	for {
 		var sleepTime time.Duration
 		cache.mutex.Lock()
@@ -126,7 +126,7 @@ func (cache *Cache) startExpirationProcessing() {
 		if cache.priorityQueue.Len() > 0 {
 			sleepTime = time.Until(cache.priorityQueue.root().expireAt)
 			if sleepTime < 0 && cache.priorityQueue.root().expireAt.IsZero() {
-				sleepTime = time.Hour
+				sleepTime = t
 			} else if sleepTime < 0 {
 				sleepTime = time.Microsecond
 			}
@@ -137,7 +137,7 @@ func (cache *Cache) startExpirationProcessing() {
 		} else if cache.ttl > 0 {
 			sleepTime = cache.ttl
 		} else {
-			sleepTime = time.Hour
+			sleepTime = t
 		}
 
 		cache.expirationTime = time.Now().Add(sleepTime)
@@ -556,6 +556,11 @@ func (cache *Cache) SetCacheSizeLimit(limit int) {
 
 // NewCache is a helper to create instance of the Cache struct
 func NewCache() *Cache {
+	return NewCacheExpireEvery(time.Hour)
+}
+
+// NewCacheExpireEvery is a helper to create instance of the Cache struct with custom expire loop time
+func NewCacheExpireEvery(t time.Duration) *Cache {
 
 	shutdownChan := make(chan chan struct{})
 
@@ -571,7 +576,7 @@ func NewCache() *Cache {
 		sizeLimit:              0,
 		metrics:                Metrics{},
 	}
-	go cache.startExpirationProcessing()
+	go cache.startExpirationProcessing(t)
 	return cache
 }
 
