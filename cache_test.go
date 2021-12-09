@@ -829,6 +829,21 @@ func TestCacheGetKeys(t *testing.T) {
 	assert.Equal(t, []string{"hello"}, keys, "Expected keys contains 'hello'")
 }
 
+func TestCacheGetItems(t *testing.T) {
+	t.Parallel()
+
+	cache := NewCache()
+	defer cache.Close()
+
+	items := cache.GetItems()
+	assert.Empty(t, items, "Expected items to be empty")
+
+	cache.Set("hello", "world")
+	items = cache.GetItems()
+	assert.NotEmpty(t, items, "Expected items to be not empty")
+	assert.Equal(t, map[string]interface{}{"hello": "world"}, items, "Expected items to {'hello': 'world'}")
+}
+
 func TestCacheGetWithTTL(t *testing.T) {
 	t.Parallel()
 
