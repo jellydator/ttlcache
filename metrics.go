@@ -1,6 +1,7 @@
 package ttlcache
 
-// Metrics contains common cache metrics so you can calculate hit and miss rates
+// Metrics contains common cache metrics so you can calculate hit and miss
+// rates.
 type Metrics struct {
 	// succesful inserts
 	Inserted int64
