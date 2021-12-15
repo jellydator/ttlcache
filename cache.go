@@ -466,8 +466,11 @@ func (cache *Cache) GetItems() map[string]interface{} {
 		return nil
 	}
 	items := make(map[string]interface{}, len(cache.items))
-	for k, item := range cache.items {
-		items[k] = item.data
+	for k := range cache.items {
+		item, exists, _ := cache.getItem(k)
+		if exists {
+			items[k] = item.data
+		}
 	}
 	return items
 }
