@@ -9,7 +9,7 @@ import (
 )
 
 func TestPriorityQueuePush(t *testing.T) {
-	queue := newPriorityQueue()
+	queue := newPriorityQueue[string, string]()
 	for i := 0; i < 10; i++ {
 		queue.push(newItem(fmt.Sprintf("key_%d", i), "data", -1))
 	}
@@ -17,18 +17,18 @@ func TestPriorityQueuePush(t *testing.T) {
 }
 
 func TestPriorityQueuePop(t *testing.T) {
-	queue := newPriorityQueue()
+	queue := newPriorityQueue[string, string]()
 	for i := 0; i < 10; i++ {
 		queue.push(newItem(fmt.Sprintf("key_%d", i), "data", -1))
 	}
 	for i := 0; i < 5; i++ {
 		item := queue.pop()
-		assert.Equal(t, fmt.Sprintf("%T", item), "*ttlcache.item", "Expected 'item' to be a '*ttlcache.item'")
+		assert.Equal(t, fmt.Sprintf("%T", item), "*ttlcache.item[string,string]", "Expected 'item' to be a '*ttlcache.item'")
 	}
 	assert.Equal(t, queue.Len(), 5, "Expected queue to have 5 elements")
 	for i := 0; i < 5; i++ {
 		item := queue.pop()
-		assert.Equal(t, fmt.Sprintf("%T", item), "*ttlcache.item", "Expected 'item' to be a '*ttlcache.item'")
+		assert.Equal(t, fmt.Sprintf("%T", item), "*ttlcache.item[string,string]", "Expected 'item' to be a '*ttlcache.item'")
 	}
 	assert.Equal(t, queue.Len(), 0, "Expected queue to have 0 elements")
 
@@ -37,7 +37,7 @@ func TestPriorityQueuePop(t *testing.T) {
 }
 
 func TestPriorityQueueCheckOrder(t *testing.T) {
-	queue := newPriorityQueue()
+	queue := newPriorityQueue[string, string]()
 	for i := 10; i > 0; i-- {
 		queue.push(newItem(fmt.Sprintf("key_%d", i), "data", time.Duration(i)*time.Second))
 	}
@@ -48,9 +48,9 @@ func TestPriorityQueueCheckOrder(t *testing.T) {
 }
 
 func TestPriorityQueueRemove(t *testing.T) {
-	queue := newPriorityQueue()
-	items := make(map[string]*item)
-	var itemRemove *item
+	queue := newPriorityQueue[string, string]()
+	items := make(map[string]*item[string, string])
+	var itemRemove *item[string, string]
 	for i := 0; i < 5; i++ {
 		key := fmt.Sprintf("key_%d", i)
 		items[key] = newItem(key, "data", time.Duration(i)*time.Second)
@@ -76,7 +76,7 @@ func TestPriorityQueueRemove(t *testing.T) {
 }
 
 func TestPriorityQueueUpdate(t *testing.T) {
-	queue := newPriorityQueue()
+	queue := newPriorityQueue[string, string]()
 	item := newItem("key", "data", 1*time.Second)
 	queue.push(item)
 	assert.Equal(t, queue.Len(), 1, "The queue is supposed to be with 1 item")

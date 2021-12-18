@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 // The SimpleCache interface enables quick-start.
 func TestCache_SimpleCache(t *testing.T) {
 	t.Parallel()
-	var cache SimpleCache = NewCache()
+	var cache SimpleCache[string, string] = NewCache[string, string]()
 
 	cache.SetTTL(time.Second)
 	cache.Set("k", "v")
@@ -37,22 +37,21 @@ func TestCache_SimpleCache(t *testing.T) {
 func TestCache_GetByLoaderRace(t *testing.T) {
 	t.Skip()
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	cache.SetTTL(time.Microsecond)
 	defer cache.Close()
 
 	loaderInvocations := uint64(0)
 	inFlight := uint64(0)
 
-	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
+	globalLoader := LoaderFunction[string, string](func(key string) (value string, ttl time.Duration, err error) {
 		atomic.AddUint64(&inFlight, 1)
 		atomic.AddUint64(&loaderInvocations, 1)
 		time.Sleep(time.Microsecond)
 		assert.Equal(t, uint64(1), inFlight)
 		defer atomic.AddUint64(&inFlight, ^uint64(0))
 		return "global", 0, nil
-
-	}
+	})
 	cache.SetLoaderFunction(globalLoader)
 
 	for i := 0; i < 1000; i++ {
@@ -78,17 +77,17 @@ func TestCache_GetByLoaderRace(t *testing.T) {
 // This is faciliated by supplying a loder function with Get's.
 func TestCache_GetByLoader(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
-	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
+	globalLoader := LoaderFunction[string, string](func(key string) (value string, ttl time.Duration, err error) {
 		return "global", 0, nil
-	}
+	})
 	cache.SetLoaderFunction(globalLoader)
 
-	localLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
+	localLoader := LoaderFunction[string, string](func(key string) (value string, ttl time.Duration, err error) {
 		return "local", 0, nil
-	}
+	})
 
 	key, _ := cache.Get("test")
 	assert.Equal(t, "global", key)
@@ -113,19 +112,19 @@ func TestCache_GetByLoader(t *testing.T) {
 
 func TestCache_GetByLoaderWithTtl(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	globalTtl := time.Duration(time.Minute)
-	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
+	globalLoader := LoaderFunction[string, string](func(key string) (value string, ttl time.Duration, err error) {
 		return "global", globalTtl, nil
-	}
+	})
 	cache.SetLoaderFunction(globalLoader)
 
 	localTtl := time.Duration(time.Hour)
-	localLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
+	localLoader := LoaderFunction[string, string](func(key string) (value string, ttl time.Duration, err error) {
 		return "local", localTtl, nil
-	}
+	})
 
 	key, ttl, _ := cache.GetWithTTL("test")
 	assert.Equal(t, "global", key)
@@ -151,14 +150,14 @@ func TestCache_GetByLoaderWithTtl(t *testing.T) {
 // Issue #38: Feature request: ability to know why an expiry has occurred
 func TestCache_textExpirationReasons(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, string]()
 
 	var reason EvictionReason
 	var sync = make(chan struct{})
-	expirationReason := func(key string, evReason EvictionReason, value interface{}) {
+	expirationReason := ExpireReasonCallback[string, string](func(key string, evReason EvictionReason, value string) {
 		reason = evReason
 		sync <- struct{}{}
-	}
+	})
 	cache.SetExpirationReasonCallback(expirationReason)
 
 	cache.SetTTL(time.Millisecond)
@@ -187,7 +186,7 @@ func TestCache_textExpirationReasons(t *testing.T) {
 
 func TestCache_TestTouch(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	lock := sync.Mutex{}
@@ -197,11 +196,11 @@ func TestCache_TestTouch(t *testing.T) {
 	lock.Unlock()
 
 	cache.SkipTTLExtensionOnHit(true)
-	cache.SetExpirationCallback(func(key string, value interface{}) {
+	cache.SetExpirationCallback(ExpireCallback[string, string](func(key string, value string) {
 		lock.Lock()
 		defer lock.Unlock()
 		expired = true
-	})
+	}))
 
 	cache.SetWithTTL("key", "data", time.Millisecond*900)
 	<-time.After(time.Millisecond * 500)
@@ -232,7 +231,7 @@ func TestCache_TestTouch(t *testing.T) {
 // Issue #37: Cache metrics
 func TestCache_TestMetrics(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.SetTTL(time.Second)
@@ -264,17 +263,17 @@ func TestCache_TestMetrics(t *testing.T) {
 // Issue #31: Test that a single fetch is executed with the loader function
 func TestCache_TestSingleFetch(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	var calls int32
 
-	loader := func(key string) (data interface{}, ttl time.Duration, err error) {
+	loader := LoaderFunction[string, string](func(key string) (value string, ttl time.Duration, err error) {
 		time.Sleep(time.Millisecond * 100)
 		atomic.AddInt32(&calls, 1)
 		return "data", 0, nil
 
-	}
+	})
 
 	cache.SetLoaderFunction(loader)
 	wg := sync.WaitGroup{}
@@ -294,14 +293,13 @@ func TestCache_TestSingleFetch(t *testing.T) {
 // Issue #30: Removal does not use expiration callback.
 func TestCache_TestRemovalTriggersCallback(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	var sync = make(chan struct{})
-	expiration := func(key string, data interface{}) {
-
+	expiration := ExpireCallback[string, string](func(key string, value string) {
 		sync <- struct{}{}
-	}
+	})
 	cache.SetExpirationCallback(expiration)
 
 	cache.Set("1", "barf")
@@ -313,18 +311,18 @@ func TestCache_TestRemovalTriggersCallback(t *testing.T) {
 // Issue #31: loader function
 func TestCache_TestLoaderFunction(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, string]()
 
-	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
-		return nil, 0, ErrNotFound
-	})
+	cache.SetLoaderFunction(LoaderFunction[string, string](func(key string) (value string, ttl time.Duration, err error) {
+		return "", 0, ErrNotFound
+	}))
 
 	_, err := cache.Get("1")
 	assert.Equal(t, ErrNotFound, err)
 
-	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
+	cache.SetLoaderFunction(LoaderFunction[string, string](func(key string) (value string, ttl time.Duration, err error) {
 		return "1", 0, nil
-	})
+	}))
 
 	value, found := cache.Get("1")
 	assert.Equal(t, nil, found)
@@ -334,22 +332,22 @@ func TestCache_TestLoaderFunction(t *testing.T) {
 
 	value, found = cache.Get("1")
 	assert.Equal(t, ErrClosed, found)
-	assert.Equal(t, nil, value)
+	assert.Zero(t, value)
 }
 
 // Issue #31: edge case where cache is closed when loader function has completed
 func TestCache_TestLoaderFunctionDuringClose(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, string]()
 
-	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
+	cache.SetLoaderFunction(LoaderFunction[string, string](func(key string) (value string, ttl time.Duration, err error) {
 		cache.Close()
 		return "1", 0, nil
-	})
+	}))
 
 	value, found := cache.Get("1")
 	assert.Equal(t, ErrClosed, found)
-	assert.Equal(t, nil, value)
+	assert.Zero(t, value)
 
 	cache.Close()
 
@@ -358,12 +356,12 @@ func TestCache_TestLoaderFunctionDuringClose(t *testing.T) {
 // Cache sometimes returns key not found under parallel access with a loader function
 func TestCache_TestLoaderFunctionParallelKeyAccess(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, string]()
 
-	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
+	cache.SetLoaderFunction(LoaderFunction[string, string](func(key string) (value string, ttl time.Duration, err error) {
 		time.Sleep(time.Millisecond * 300)
 		return "1", 1 * time.Nanosecond, nil
-	})
+	}))
 
 	wg := sync.WaitGroup{}
 	errCount := uint64(0)
@@ -389,16 +387,16 @@ func TestCache_TestLoaderFunctionParallelKeyAccess(t *testing.T) {
 // Issue #28: call expirationCallback automatically on cache.Close()
 func TestCache_ExpirationOnClose(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, int]()
 
 	success := make(chan struct{})
 	defer close(success)
 
 	cache.SetTTL(time.Hour * 100)
-	cache.SetExpirationCallback(func(key string, value interface{}) {
+	cache.SetExpirationCallback(ExpireCallback[string, int](func(key string, value int) {
 		t.Logf("%s\t%v", key, value)
 		success <- struct{}{}
-	})
+	}))
 	cache.Set("1", 1)
 	cache.Set("2", 1)
 	cache.Set("3", 1)
@@ -421,12 +419,12 @@ func TestCache_ExpirationOnClose(t *testing.T) {
 
 func TestCache_ModifyAfterClose(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, int]()
 
 	cache.SetTTL(time.Hour * 100)
-	cache.SetExpirationCallback(func(key string, value interface{}) {
+	cache.SetExpirationCallback(ExpireCallback[string, int](func(key string, value int) {
 		t.Logf("%s\t%v", key, value)
-	})
+	}))
 	cache.Set("1", 1)
 	cache.Set("2", 1)
 	cache.Set("3", 1)
@@ -456,7 +454,7 @@ func TestCache_ModifyAfterClose(t *testing.T) {
 // that it can be called in a repeated way without problems.
 func TestCache_MultipleCloseCalls(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, string]()
 
 	cache.SetTTL(time.Millisecond * 100)
 
@@ -479,7 +477,7 @@ func TestCache_MultipleCloseCalls(t *testing.T) {
 func TestCache_SkipTtlExtensionOnHit(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.SetTTL(time.Millisecond * 100)
@@ -504,7 +502,7 @@ func TestCache_SkipTtlExtensionOnHit(t *testing.T) {
 func TestCache_ForRacesAcrossGoroutines(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, bool]()
 	defer cache.Close()
 
 	cache.SetTTL(time.Minute * 1)
@@ -550,7 +548,7 @@ func TestCache_ForRacesAcrossGoroutines(t *testing.T) {
 }
 
 func TestCache_SkipTtlExtensionOnHit_ForRacesAcrossGoroutines(t *testing.T) {
-	cache := NewCache()
+	cache := NewCache[string, bool]()
 	defer cache.Close()
 
 	cache.SetTTL(time.Minute * 1)
@@ -603,13 +601,12 @@ func TestCache_SetCheckExpirationCallback(t *testing.T) {
 	iterated := 0
 	ch := make(chan struct{})
 
-	cacheAD := NewCache()
+	cacheAD := NewCache[string, *int]()
 	defer cacheAD.Close()
 
 	cacheAD.SetTTL(time.Millisecond)
-	cacheAD.SetCheckExpirationCallback(func(key string, value interface{}) bool {
-		v := value.(*int)
-		t.Logf("key=%v, value=%d\n", key, *v)
+	cacheAD.SetCheckExpirationCallback(CheckExpireCallback[string, *int](func(key string, value *int) bool {
+		t.Logf("key=%v, value=%d\n", key, *value)
 		iterated++
 		if iterated == 1 {
 			// this is the breaking test case for issue #14
@@ -617,7 +614,7 @@ func TestCache_SetCheckExpirationCallback(t *testing.T) {
 		}
 		ch <- struct{}{}
 		return true
-	})
+	}))
 
 	i := 2
 	cacheAD.Set("a", &i)
@@ -637,15 +634,15 @@ func TestCache_SetExpirationCallback(t *testing.T) {
 	}
 
 	// Setup the TTL cache
-	cache := NewCache()
+	cache := NewCache[string, A]()
 	defer cache.Close()
 
 	ch := make(chan struct{}, 1024)
 	cache.SetTTL(time.Second * 1)
-	cache.SetExpirationCallback(func(key string, value interface{}) {
+	cache.SetExpirationCallback(ExpireCallback[string, A](func(key string, value A) {
 		t.Logf("This key(%s) has expired\n", key)
 		ch <- struct{}{}
-	})
+	}))
 	for i := 0; i < 1024; i++ {
 		cache.Set(fmt.Sprintf("item_%d", i), A{})
 		time.Sleep(time.Millisecond * 10)
@@ -667,7 +664,7 @@ func TestCache_SetExpirationCallback(t *testing.T) {
 func TestRemovalAndCountDoesNotPanic(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.Set("key", "value")
@@ -680,12 +677,12 @@ func TestRemovalAndCountDoesNotPanic(t *testing.T) {
 func TestRemovalWithTtlDoesNotPanic(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
-	cache.SetExpirationCallback(func(key string, value interface{}) {
+	cache.SetExpirationCallback(ExpireCallback[string, string](func(key string, value string) {
 		t.Logf("This key(%s) has expired\n", key)
-	})
+	}))
 
 	cache.SetWithTTL("keyWithTTL", "value", time.Duration(2*time.Second))
 	cache.Set("key", "value")
@@ -713,44 +710,44 @@ func TestRemovalWithTtlDoesNotPanic(t *testing.T) {
 func TestCacheIndividualExpirationBiggerThanGlobal(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
 	<-time.After(150 * time.Millisecond)
-	data, exists := cache.Get("key")
+	value, exists := cache.Get("key")
 	assert.Equal(t, exists, ErrNotFound, "Expected item to not exist")
-	assert.Nil(t, data, "Expected item to be nil")
+	assert.Zero(t, value, "Expected item to be empty")
 }
 
 func TestCacheGlobalExpirationByGlobal(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.Set("key", "value")
 	<-time.After(50 * time.Millisecond)
-	data, exists := cache.Get("key")
+	value, exists := cache.Get("key")
 	assert.Equal(t, exists, nil, "Expected item to exist in cache")
-	assert.Equal(t, data.(string), "value", "Expected item to have 'value' in value")
+	assert.Equal(t, value, "value", "Expected item to have 'value' in value")
 
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
-	data, exists = cache.Get("key")
+	value, exists = cache.Get("key")
 	assert.Equal(t, exists, nil, "Expected item to exist in cache")
-	assert.Equal(t, data.(string), "value", "Expected item to have 'value' in value")
+	assert.Equal(t, value, "value", "Expected item to have 'value' in value")
 
 	<-time.After(100 * time.Millisecond)
-	data, exists = cache.Get("key")
+	value, exists = cache.Get("key")
 	assert.Equal(t, exists, ErrNotFound, "Expected item to not exist")
-	assert.Nil(t, data, "Expected item to be nil")
+	assert.Zero(t, value, "Expected item to be empty")
 }
 
 func TestCacheGlobalExpiration(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.SetTTL(time.Duration(100 * time.Millisecond))
@@ -764,12 +761,12 @@ func TestCacheGlobalExpiration(t *testing.T) {
 func TestCacheMixedExpirations(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
-	cache.SetExpirationCallback(func(key string, value interface{}) {
+	cache.SetExpirationCallback(ExpireCallback[string, string](func(key string, value string) {
 		t.Logf("expired: %s", key)
-	})
+	}))
 	cache.Set("key_1", "value")
 	cache.SetTTL(time.Duration(100 * time.Millisecond))
 	cache.Set("key_2", "value")
@@ -780,7 +777,7 @@ func TestCacheMixedExpirations(t *testing.T) {
 func TestCacheIndividualExpiration(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
@@ -800,24 +797,24 @@ func TestCacheIndividualExpiration(t *testing.T) {
 func TestCacheGet(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
-	data, exists := cache.Get("hello")
+	value, exists := cache.Get("hello")
 	assert.Equal(t, exists, ErrNotFound, "Expected empty cache to return no data")
-	assert.Nil(t, data, "Expected data to be empty")
+	assert.Zero(t, value, "Expected data to be empty")
 
 	cache.Set("hello", "world")
-	data, exists = cache.Get("hello")
-	assert.NotNil(t, data, "Expected data to be not nil")
+	value, exists = cache.Get("hello")
+	assert.NotZero(t, value, "Expected data to be not empty")
 	assert.Equal(t, nil, exists, "Expected data to exist")
-	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
+	assert.Equal(t, "world", value, "Expected data content to be 'world'")
 }
 
 func TestCacheGetKeys(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	keys := cache.GetKeys()
@@ -832,7 +829,7 @@ func TestCacheGetKeys(t *testing.T) {
 func TestCacheGetItems(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	items := cache.GetItems()
@@ -841,63 +838,63 @@ func TestCacheGetItems(t *testing.T) {
 	cache.Set("hello", "world")
 	items = cache.GetItems()
 	assert.NotEmpty(t, items, "Expected items to be not empty")
-	assert.Equal(t, map[string]interface{}{"hello": "world"}, items, "Expected items to {'hello': 'world'}")
+	assert.Equal(t, map[string]string{"hello": "world"}, items, "Expected items to {'hello': 'world'}")
 }
 
 func TestCacheGetWithTTL(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
-	data, ttl, exists := cache.GetWithTTL("hello")
+	value, ttl, exists := cache.GetWithTTL("hello")
 	assert.Equal(t, exists, ErrNotFound, "Expected empty cache to return no data")
-	assert.Nil(t, data, "Expected data to be empty")
+	assert.Zero(t, value, "Expected data to be empty")
 	assert.Equal(t, int(ttl), 0, "Expected item TTL to be 0")
 
 	cache.Set("hello", "world")
-	data, ttl, exists = cache.GetWithTTL("hello")
-	assert.NotNil(t, data, "Expected data to be not nil")
+	value, ttl, exists = cache.GetWithTTL("hello")
+	assert.NotZero(t, value, "Expected data to be not empty")
 	assert.Equal(t, nil, exists, "Expected data to exist")
-	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
+	assert.Equal(t, "world", value, "Expected data content to be 'world'")
 	assert.Equal(t, int(ttl), 0, "Expected item TTL to be 0")
 
 	orgttl := time.Duration(500 * time.Millisecond)
 	cache.SetWithTTL("hello", "world", orgttl)
 	time.Sleep(10 * time.Millisecond)
-	data, ttl, exists = cache.GetWithTTL("hello")
-	assert.NotNil(t, data, "Expected data to be not nil")
+	value, ttl, exists = cache.GetWithTTL("hello")
+	assert.NotZero(t, value, "Expected data to be not empty")
 	assert.Equal(t, nil, exists, "Expected data to exist")
-	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
+	assert.Equal(t, "world", value, "Expected data content to be 'world'")
 	assert.Equal(t, ttl, orgttl, "Expected item TTL to be original TTL")
 
 	cache.SkipTTLExtensionOnHit(true)
 	cache.SetWithTTL("hello", "world", orgttl)
 	time.Sleep(10 * time.Millisecond)
-	data, ttl, exists = cache.GetWithTTL("hello")
-	assert.NotNil(t, data, "Expected data to be not nil")
+	value, ttl, exists = cache.GetWithTTL("hello")
+	assert.NotZero(t, value, "Expected data to be not empty")
 	assert.Equal(t, nil, exists, "Expected data to exist")
-	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
+	assert.Equal(t, "world", value, "Expected data content to be 'world'")
 	assert.Less(t, ttl, orgttl, "Expected item TTL to be less than the original TTL")
 	assert.NotEqual(t, int(ttl), 0, "Expected item TTL to be not 0")
 }
 
 func TestCache_TestGetWithTTLAndLoaderFunction(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewCache[string, string]()
 
-	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
-		return nil, 0, ErrNotFound
-	})
+	cache.SetLoaderFunction(LoaderFunction[string, string](func(key string) (value string, ttl time.Duration, err error) {
+		return "", 0, ErrNotFound
+	}))
 
 	_, ttl, err := cache.GetWithTTL("1")
 	assert.Equal(t, ErrNotFound, err, "Expected error to be ErrNotFound")
 	assert.Equal(t, int(ttl), 0, "Expected item TTL to be 0")
 
 	orgttl := time.Duration(1 * time.Second)
-	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
+	cache.SetLoaderFunction(LoaderFunction[string, string](func(key string) (value string, ttl time.Duration, err error) {
 		return "1", orgttl, nil
-	})
+	}))
 
 	value, ttl, found := cache.GetWithTTL("1")
 	assert.Equal(t, nil, found)
@@ -907,7 +904,7 @@ func TestCache_TestGetWithTTLAndLoaderFunction(t *testing.T) {
 
 	value, ttl, found = cache.GetWithTTL("1")
 	assert.Equal(t, ErrClosed, found)
-	assert.Equal(t, nil, value)
+	assert.Zero(t, value)
 	assert.Equal(t, int(ttl), 0, "Expected returned ttl for an ErrClosed err to be 0")
 }
 
@@ -917,15 +914,15 @@ func TestCacheExpirationCallbackFunction(t *testing.T) {
 	expiredCount := 0
 	var lock sync.Mutex
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.SetTTL(time.Duration(500 * time.Millisecond))
-	cache.SetExpirationCallback(func(key string, value interface{}) {
+	cache.SetExpirationCallback(ExpireCallback[string, string](func(key string, value string) {
 		lock.Lock()
 		defer lock.Unlock()
 		expiredCount = expiredCount + 1
-	})
+	}))
 	cache.SetWithTTL("key", "value", time.Duration(1000*time.Millisecond))
 	cache.Set("key_2", "value")
 	<-time.After(1100 * time.Millisecond)
@@ -943,22 +940,22 @@ func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
 	expiredCount := 0
 	var lock sync.Mutex
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.SkipTTLExtensionOnHit(true)
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
-	cache.SetCheckExpirationCallback(func(key string, value interface{}) bool {
+	cache.SetCheckExpirationCallback(CheckExpireCallback[string, string](func(key string, value string) bool {
 		if key == "key2" || key == "key4" {
 			return true
 		}
 		return false
-	})
-	cache.SetExpirationCallback(func(key string, value interface{}) {
+	}))
+	cache.SetExpirationCallback(ExpireCallback[string, string](func(key string, value string) {
 		lock.Lock()
 		expiredCount = expiredCount + 1
 		lock.Unlock()
-	})
+	}))
 	cache.Set("key", "value")
 	cache.Set("key3", "value")
 	cache.Set("key2", "value")
@@ -974,13 +971,13 @@ func TestCacheNewItemCallbackFunction(t *testing.T) {
 	t.Parallel()
 
 	newItemCount := 0
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
-	cache.SetNewItemCallback(func(key string, value interface{}) {
+	cache.SetNewItemCallback(ExpireCallback[string, string](func(key string, value string) {
 		newItemCount = newItemCount + 1
-	})
+	}))
 	cache.Set("key", "value")
 	cache.Set("key2", "value")
 	cache.Set("key", "value")
@@ -991,7 +988,7 @@ func TestCacheNewItemCallbackFunction(t *testing.T) {
 func TestCacheRemove(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
@@ -1007,28 +1004,27 @@ func TestCacheRemove(t *testing.T) {
 func TestCacheSetWithTTLExistItem(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.SetTTL(time.Duration(100 * time.Millisecond))
 	cache.SetWithTTL("key", "value", time.Duration(50*time.Millisecond))
 	<-time.After(30 * time.Millisecond)
 	cache.SetWithTTL("key", "value2", time.Duration(50*time.Millisecond))
-	data, exists := cache.Get("key")
+	value, exists := cache.Get("key")
 	assert.Equal(t, nil, exists, "Expected 'key' to exist")
-	assert.Equal(t, "value2", data.(string), "Expected 'data' to have value 'value2'")
+	assert.Equal(t, "value2", value, "Expected 'value' to have value 'value2'")
 }
 
 func TestCache_Purge(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.SetTTL(time.Duration(100 * time.Millisecond))
 
 	for i := 0; i < 5; i++ {
-
 		cache.SetWithTTL("key", "value", time.Duration(50*time.Millisecond))
 		<-time.After(30 * time.Millisecond)
 		cache.SetWithTTL("key", "value2", time.Duration(50*time.Millisecond))
@@ -1043,7 +1039,7 @@ func TestCache_Purge(t *testing.T) {
 func TestCache_Limit(t *testing.T) {
 	t.Parallel()
 
-	cache := NewCache()
+	cache := NewCache[string, string]()
 	defer cache.Close()
 
 	cache.SetTTL(time.Duration(100 * time.Second))

@@ -1,83 +1,94 @@
 package ttlcache
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
 	"golang.org/x/sync/singleflight"
 )
 
-// CheckExpireCallback is used as a callback for an external check on item expiration
-type CheckExpireCallback func(key string, value interface{}) bool
+// CheckExpireCallback is used as a callback for an external check on item
+// expiration.
+type CheckExpireCallback[K comparable, V any] func(key K, value V) bool
 
-// ExpireCallback is used as a callback on item expiration or when notifying of an item new to the cache
-// Note that ExpireReasonCallback will be the successor of this function in the next major release.
-type ExpireCallback func(key string, value interface{})
+// ExpireCallback is used as a callback on item expiration or when notifying
+// of an item new to the cache.
+// Note that ExpireReasonCallback will be the successor of this function in
+// the next major release.
+type ExpireCallback[K comparable, V any] func(key K, value V)
 
-// ExpireReasonCallback is used as a callback on item expiration with extra information why the item expired.
-type ExpireReasonCallback func(key string, reason EvictionReason, value interface{})
+// ExpireReasonCallback is used as a callback on item expiration with extra
+// information why the item expired.
+type ExpireReasonCallback[K comparable, V any] func(key K, reason EvictionReason, value V)
 
-// LoaderFunction can be supplied to retrieve an item where a cache miss occurs. Supply an item specific ttl or Duration.Zero
-type LoaderFunction func(key string) (data interface{}, ttl time.Duration, err error)
+// LoaderFunction can be supplied to retrieve an item where a cache miss
+// occurs. Supply an item specific ttl or Duration.Zero
+type LoaderFunction[K comparable, V any] func(key K) (value V, ttl time.Duration, err error)
 
 // SimpleCache interface enables a quick-start. Interface for basic usage.
-type SimpleCache interface {
-	Get(key string) (interface{}, error)
-	GetWithTTL(key string) (interface{}, time.Duration, error)
-	Set(key string, data interface{}) error
+type SimpleCache[K comparable, V any] interface {
+	Get(key K) (V, error)
+	GetWithTTL(key K) (V, time.Duration, error)
+	Set(key K, value V) error
 	SetTTL(ttl time.Duration) error
-	SetWithTTL(key string, data interface{}, ttl time.Duration) error
-	Remove(key string) error
+	SetWithTTL(key K, value V, ttl time.Duration) error
+	Remove(key K) error
 	Close() error
 	Purge() error
 }
 
-// Cache is a synchronized map of items that can auto-expire once stale
-type Cache struct {
+// Cache is a synchronized map of items that can auto-expire once stale.
+type Cache[K comparable, V any] struct {
 	// mutex is shared for all operations that need to be safe
 	mutex sync.Mutex
 	// ttl is the global ttl for the cache, can be zero (is infinite)
 	ttl time.Duration
 	// actual item storage
-	items map[string]*item
+	items map[K]*item[K, V]
 	// lock used to avoid fetching a remote item multiple times
 	loaderLock           *singleflight.Group
-	expireCallback       ExpireCallback
-	expireReasonCallback ExpireReasonCallback
-	checkExpireCallback  CheckExpireCallback
-	newItemCallback      ExpireCallback
-	// the queue is used to have an ordered structure to use for expiration and cleanup.
-	priorityQueue          *priorityQueue
+	expireCallback       ExpireCallback[K, V]
+	expireReasonCallback ExpireReasonCallback[K, V]
+	checkExpireCallback  CheckExpireCallback[K, V]
+	newItemCallback      ExpireCallback[K, V]
+	// the queue is used to have an ordered structure to use for
+	// expiration and cleanup.
+	priorityQueue          *priorityQueue[K, V]
 	expirationNotification chan bool
-	// hasNotified is used to not schedule new expiration processing when an request is already pending.
+	// hasNotified is used to not schedule new expiration processing
+	// when a request is already pending.
 	hasNotified      bool
 	expirationTime   time.Time
 	skipTTLExtension bool
 	shutdownSignal   chan (chan struct{})
 	isShutDown       bool
-	loaderFunction   LoaderFunction
+	loaderFunction   LoaderFunction[K, V]
 	sizeLimit        int
 	metrics          Metrics
 }
 
-// EvictionReason is an enum that explains why an item was evicted
+// EvictionReason is an enum that explains why an item was evicted.
 type EvictionReason int
 
 const (
-	// Removed : explicitly removed from cache via API call
+	// Removed : explicitly removed from cache via API call.
 	Removed EvictionReason = iota
-	// EvictedSize : evicted due to exceeding the cache size
+	// EvictedSize : evicted due to exceeding the cache size.
 	EvictedSize
-	// Expired : the time to live is zero and therefore the item is removed
+	// Expired : the time to live is zero and therefore the item is
+	// removed.
 	Expired
-	// Closed : the cache was closed
+	// Closed : the cache was closed.
 	Closed
 )
 
 const (
-	// ErrClosed is raised when operating on a cache where Close() has already been called.
+	// ErrClosed is raised when operating on a cache where Close() has
+	// already been called.
 	ErrClosed = constError("cache already closed")
-	// ErrNotFound indicates that the requested key is not present in the cache
+	// ErrNotFound indicates that the requested key is not present
+	// in the cache
 	ErrNotFound = constError("key not found")
 )
 
@@ -87,13 +98,14 @@ func (err constError) Error() string {
 	return string(err)
 }
 
-func (cache *Cache) getItem(key string) (*item, bool, bool) {
+func (cache *Cache[K, V]) getItem(key K) (*item[K, V], bool, bool) {
 	item, exists := cache.items[key]
 	if !exists || item.expired() {
 		return nil, false, false
 	}
 
-	// no need to change priority queue when skipTTLExtension is true or the item will not expire
+	// no need to change priority queue when skipTTLExtension is true or
+	// the item will not expire
 	if cache.skipTTLExtension || (item.ttl == 0 && cache.ttl == 0) {
 		return item, true, false
 	}
@@ -117,7 +129,7 @@ func (cache *Cache) getItem(key string) (*item, bool, bool) {
 	return item, exists, expirationNotification
 }
 
-func (cache *Cache) startExpirationProcessing() {
+func (cache *Cache[K, V]) startExpirationProcessing() {
 	timer := time.NewTimer(time.Hour)
 	for {
 		var sleepTime time.Duration
@@ -172,27 +184,26 @@ func (cache *Cache) startExpirationProcessing() {
 	}
 }
 
-func (cache *Cache) checkExpirationCallback(item *item, reason EvictionReason) {
+func (cache *Cache[K, V]) checkExpirationCallback(item *item[K, V], reason EvictionReason) {
 	if cache.expireCallback != nil {
-		go cache.expireCallback(item.key, item.data)
+		go cache.expireCallback(item.key, item.value)
 	}
 	if cache.expireReasonCallback != nil {
-		go cache.expireReasonCallback(item.key, reason, item.data)
+		go cache.expireReasonCallback(item.key, reason, item.value)
 	}
 }
 
-func (cache *Cache) removeItem(item *item, reason EvictionReason) {
+func (cache *Cache[K, V]) removeItem(item *item[K, V], reason EvictionReason) {
 	cache.metrics.Evicted++
 	cache.checkExpirationCallback(item, reason)
 	cache.priorityQueue.remove(item)
 	delete(cache.items, item.key)
 }
 
-func (cache *Cache) evictjob(reason EvictionReason) {
+func (cache *Cache[K, V]) evictjob(reason EvictionReason) {
 	// index will only be advanced if the current entry will not be evicted
 	i := 0
 	for item := cache.priorityQueue.items[i]; ; item = cache.priorityQueue.items[i] {
-
 		cache.removeItem(item, reason)
 		if cache.priorityQueue.Len() == 0 {
 			return
@@ -200,13 +211,12 @@ func (cache *Cache) evictjob(reason EvictionReason) {
 	}
 }
 
-func (cache *Cache) cleanjob() {
+func (cache *Cache[K, V]) cleanjob() {
 	// index will only be advanced if the current entry will not be evicted
 	i := 0
 	for item := cache.priorityQueue.items[i]; item.expired(); item = cache.priorityQueue.items[i] {
-
 		if cache.checkExpireCallback != nil {
-			if !cache.checkExpireCallback(item.key, item.data) {
+			if !cache.checkExpireCallback(item.key, item.value) {
 				item.touch()
 				cache.priorityQueue.update(item)
 				i++
@@ -224,9 +234,11 @@ func (cache *Cache) cleanjob() {
 	}
 }
 
-// Close calls Purge after stopping the goroutine that does ttl checking, for a clean shutdown.
-// The cache is no longer cleaning up after the first call to Close, repeated calls are safe and return ErrClosed.
-func (cache *Cache) Close() error {
+// Close calls Purge after stopping the goroutine that does ttl checking,
+// for a clean shutdown.
+// The cache is no longer cleaning up after the first call to Close, repeated
+// calls are safe and return ErrClosed.
+func (cache *Cache[K, V]) Close() error {
 	cache.mutex.Lock()
 	if !cache.isShutDown {
 		cache.isShutDown = true
@@ -244,12 +256,13 @@ func (cache *Cache) Close() error {
 }
 
 // Set is a thread-safe way to add new items to the map.
-func (cache *Cache) Set(key string, data interface{}) error {
-	return cache.SetWithTTL(key, data, ItemExpireWithGlobalTTL)
+func (cache *Cache[K, V]) Set(key K, value V) error {
+	return cache.SetWithTTL(key, value, ItemExpireWithGlobalTTL)
 }
 
-// SetWithTTL is a thread-safe way to add new items to the map with individual ttl.
-func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) error {
+// SetWithTTL is a thread-safe way to add new items to the map with
+// individual ttl.
+func (cache *Cache[K, V]) SetWithTTL(key K, value V, ttl time.Duration) error {
 	cache.mutex.Lock()
 	if cache.isShutDown {
 		cache.mutex.Unlock()
@@ -263,13 +276,13 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 	}
 
 	if exists {
-		item.data = data
+		item.value = value
 		item.ttl = ttl
 	} else {
 		if cache.sizeLimit != 0 && len(cache.items) >= cache.sizeLimit {
 			cache.removeItem(cache.priorityQueue.items[0], EvictedSize)
 		}
-		item = newItem(key, data, ttl)
+		item = newItem(key, value, ttl)
 		cache.items[key] = item
 	}
 	cache.metrics.Inserted++
@@ -290,7 +303,7 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 
 	cache.mutex.Unlock()
 	if !exists && cache.newItemCallback != nil {
-		cache.newItemCallback(key, data)
+		cache.newItemCallback(key, value)
 	}
 
 	// notify expiration only if the latest expire time is changed
@@ -300,41 +313,43 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 	return nil
 }
 
-// Get is a thread-safe way to lookup items
-// Every lookup, also touches the item, hence extending its life
-func (cache *Cache) Get(key string) (interface{}, error) {
+// Get is a thread-safe way to lookup items.
+// Every lookup, also touches the item, hence extending its life.
+func (cache *Cache[K, V]) Get(key K) (V, error) {
 	return cache.GetByLoader(key, nil)
 }
 
 // GetWithTTL has exactly the same behaviour as Get but also returns
-// the remaining TTL for a specific item at the moment its retrieved
-func (cache *Cache) GetWithTTL(key string) (interface{}, time.Duration, error) {
+// the remaining TTL for a specific item at the moment its retrieved.
+func (cache *Cache[K, V]) GetWithTTL(key K) (V, time.Duration, error) {
 	return cache.GetByLoaderWithTtl(key, nil)
 }
 
-// GetByLoader can take a per key loader function (i.e. to propagate context)
-func (cache *Cache) GetByLoader(key string, customLoaderFunction LoaderFunction) (interface{}, error) {
-	dataToReturn, _, err := cache.GetByLoaderWithTtl(key, customLoaderFunction)
+// GetByLoader can take a per key loader function (i.e. to propagate context).
+func (cache *Cache[K, V]) GetByLoader(key K, customLoaderFunction LoaderFunction[K, V]) (V, error) {
+	valueToReturn, _, err := cache.GetByLoaderWithTtl(key, customLoaderFunction)
 
-	return dataToReturn, err
+	return valueToReturn, err
 }
 
-// GetByLoaderWithTtl can take a per key loader function (i.e. to propagate context)
-func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFunction) (interface{}, time.Duration, error) {
+// GetByLoaderWithTtl can take a per key loader function (i.e. to propagate
+// context)
+func (cache *Cache[K, V]) GetByLoaderWithTtl(key K, customLoaderFunction LoaderFunction[K, V]) (V, time.Duration, error) {
 	cache.mutex.Lock()
 	if cache.isShutDown {
 		cache.mutex.Unlock()
-		return nil, 0, ErrClosed
+		var empty V
+		return empty, 0, ErrClosed
 	}
 
 	cache.metrics.Hits++
 	item, exists, triggerExpirationNotification := cache.getItem(key)
 
-	var dataToReturn interface{}
+	var valueToReturn V
 	ttlToReturn := time.Duration(0)
 	if exists {
 		cache.metrics.Retrievals++
-		dataToReturn = item.data
+		valueToReturn = item.value
 		if !cache.skipTTLExtension {
 			ttlToReturn = item.ttl
 		} else {
@@ -361,23 +376,20 @@ func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFu
 	}
 
 	if loaderFunction != nil && !exists {
-		type loaderResult struct {
-			data interface{}
-			ttl  time.Duration
-		}
-		ch := cache.loaderLock.DoChan(key, func() (interface{}, error) {
+		loaderKey := fmt.Sprint(key)
+		ch := cache.loaderLock.DoChan(loaderKey, func() (interface{}, error) {
 			// cache is not blocked during io
-			invokeData, ttl, err := cache.invokeLoader(key, loaderFunction)
-			lr := &loaderResult{
-				data: invokeData,
-				ttl:  ttl,
+			invokeValue, ttl, err := cache.invokeLoader(key, loaderFunction)
+			lr := &loaderResult[V]{
+				value: invokeValue,
+				ttl:   ttl,
 			}
 			return lr, err
 		})
 		cache.mutex.Unlock()
 		res := <-ch
-		dataToReturn = res.Val.(*loaderResult).data
-		ttlToReturn = res.Val.(*loaderResult).ttl
+		valueToReturn = res.Val.(*loaderResult[V]).value
+		ttlToReturn = res.Val.(*loaderResult[V]).ttl
 		err = res.Err
 	}
 
@@ -385,10 +397,10 @@ func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFu
 		cache.notifyExpiration()
 	}
 
-	return dataToReturn, ttlToReturn, err
+	return valueToReturn, ttlToReturn, err
 }
 
-func (cache *Cache) notifyExpiration() {
+func (cache *Cache[K, V]) notifyExpiration() {
 	cache.mutex.Lock()
 	if cache.hasNotified {
 		cache.mutex.Unlock()
@@ -400,19 +412,21 @@ func (cache *Cache) notifyExpiration() {
 	cache.expirationNotification <- true
 }
 
-func (cache *Cache) invokeLoader(key string, loaderFunction LoaderFunction) (dataToReturn interface{}, ttl time.Duration, err error) {
-	dataToReturn, ttl, err = loaderFunction(key)
+func (cache *Cache[K, V]) invokeLoader(key K, loaderFunction LoaderFunction[K, V]) (valueToReturn V, ttl time.Duration, err error) {
+	valueToReturn, ttl, err = loaderFunction(key)
 	if err == nil {
-		err = cache.SetWithTTL(key, dataToReturn, ttl)
+		err = cache.SetWithTTL(key, valueToReturn, ttl)
 		if err != nil {
-			dataToReturn = nil
+			var empty V
+			valueToReturn = empty
 		}
 	}
-	return dataToReturn, ttl, err
+	return valueToReturn, ttl, err
 }
 
-// Remove removes an item from the cache if it exists, triggers expiration callback when set. Can return ErrNotFound if the entry was not present.
-func (cache *Cache) Remove(key string) error {
+// Remove removes an item from the cache if it exists, triggers expiration
+// callback when set. Can return ErrNotFound if the entry was not present.
+func (cache *Cache[K, V]) Remove(key K) error {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	if cache.isShutDown {
@@ -428,8 +442,9 @@ func (cache *Cache) Remove(key string) error {
 	return nil
 }
 
-// Count returns the number of items in the cache. Returns zero when the cache has been closed.
-func (cache *Cache) Count() int {
+// Count returns the number of items in the cache. Returns zero when the
+// cache has been closed.
+func (cache *Cache[K, V]) Count() int {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 
@@ -440,15 +455,16 @@ func (cache *Cache) Count() int {
 	return length
 }
 
-// GetKeys returns all keys of items in the cache. Returns nil when the cache has been closed.
-func (cache *Cache) GetKeys() []string {
+// GetKeys returns all keys of items in the cache. Returns nil when the cache
+// has been closed.
+func (cache *Cache[K, V]) GetKeys() []K {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 
 	if cache.isShutDown {
 		return nil
 	}
-	keys := make([]string, len(cache.items))
+	keys := make([]K, len(cache.items))
 	i := 0
 	for k := range cache.items {
 		keys[i] = k
@@ -457,26 +473,28 @@ func (cache *Cache) GetKeys() []string {
 	return keys
 }
 
-// GetItems returns a copy of all items in the cache. Returns nil when the cache has been closed.
-func (cache *Cache) GetItems() map[string]interface{} {
+// GetItems returns a copy of all items in the cache. Returns nil when 
+// the cache has been closed.
+func (cache *Cache[K, V]) GetItems() map[K]V {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 
 	if cache.isShutDown {
 		return nil
 	}
-	items := make(map[string]interface{}, len(cache.items))
+	items := make(map[K]V, len(cache.items))
 	for k := range cache.items {
 		item, exists, _ := cache.getItem(k)
 		if exists {
-			items[k] = item.data
+			items[k] = item.value
 		}
 	}
 	return items
 }
 
-// SetTTL sets the global TTL value for items in the cache, which can be overridden at the item level.
-func (cache *Cache) SetTTL(ttl time.Duration) error {
+// SetTTL sets the global TTL value for items in the cache, which can be
+// overridden at the item level.
+func (cache *Cache[K, V]) SetTTL(ttl time.Duration) error {
 	cache.mutex.Lock()
 
 	if cache.isShutDown {
@@ -489,83 +507,89 @@ func (cache *Cache) SetTTL(ttl time.Duration) error {
 	return nil
 }
 
-// SetExpirationCallback sets a callback that will be called when an item expires
-func (cache *Cache) SetExpirationCallback(callback ExpireCallback) {
+// SetExpirationCallback sets a callback that will be called when an item
+// expires.
+func (cache *Cache[K, V]) SetExpirationCallback(callback ExpireCallback[K, V]) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	cache.expireCallback = callback
 }
 
-// SetExpirationReasonCallback sets a callback that will be called when an item expires, includes reason of expiry
-func (cache *Cache) SetExpirationReasonCallback(callback ExpireReasonCallback) {
+// SetExpirationReasonCallback sets a callback that will be called when an
+// item expires, includes reason of expiry.
+func (cache *Cache[K, V]) SetExpirationReasonCallback(callback ExpireReasonCallback[K, V]) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	cache.expireReasonCallback = callback
 }
 
-// SetCheckExpirationCallback sets a callback that will be called when an item is about to expire
-// in order to allow external code to decide whether the item expires or remains for another TTL cycle
-func (cache *Cache) SetCheckExpirationCallback(callback CheckExpireCallback) {
+// SetCheckExpirationCallback sets a callback that will be called when an
+// item is about to expire in order to allow external code to decide whether
+// the item expires or remains for another TTL cycle
+func (cache *Cache[K, V]) SetCheckExpirationCallback(callback CheckExpireCallback[K, V]) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	cache.checkExpireCallback = callback
 }
 
-// SetNewItemCallback sets a callback that will be called when a new item is added to the cache
-func (cache *Cache) SetNewItemCallback(callback ExpireCallback) {
+// SetNewItemCallback sets a callback that will be called when a new item
+// is added to the cache.
+func (cache *Cache[K, V]) SetNewItemCallback(callback ExpireCallback[K, V]) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	cache.newItemCallback = callback
 }
 
-// SkipTTLExtensionOnHit allows the user to change the cache behaviour. When this flag is set to true it will
-// no longer extend TTL of items when they are retrieved using Get, or when their expiration condition is evaluated
+// SkipTTLExtensionOnHit allows the user to change the cache behaviour. When
+// this flag is set to true it will no longer extend TTL of items when they
+// are retrieved using Get, or when their expiration condition is evaluated
 // using SetCheckExpirationCallback.
-func (cache *Cache) SkipTTLExtensionOnHit(value bool) {
+func (cache *Cache[K, V]) SkipTTLExtensionOnHit(value bool) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	cache.skipTTLExtension = value
 }
 
-// SetLoaderFunction allows you to set a function to retrieve cache misses. The signature matches that of the Get function.
-// Additional Get calls on the same key block while fetching is in progress (groupcache style).
-func (cache *Cache) SetLoaderFunction(loader LoaderFunction) {
+// SetLoaderFunction allows you to set a function to retrieve cache misses.
+// The signature matches that of the Get function.
+// Additional Get calls on the same key block while fetching is in progress
+// (groupcache style).
+func (cache *Cache[K, V]) SetLoaderFunction(loader LoaderFunction[K, V]) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	cache.loaderFunction = loader
 }
 
-// Purge will remove all entries
-func (cache *Cache) Purge() error {
+// Purge will remove all entries.
+func (cache *Cache[K, V]) Purge() error {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	if cache.isShutDown {
 		return ErrClosed
 	}
 	cache.metrics.Evicted += int64(len(cache.items))
-	cache.items = make(map[string]*item)
-	cache.priorityQueue = newPriorityQueue()
+	cache.items = make(map[K]*item[K, V])
+	cache.priorityQueue = newPriorityQueue[K, V]()
 	return nil
 }
 
 // SetCacheSizeLimit sets a limit to the amount of cached items.
-// If a new item is getting cached, the closes item to being timed out will be replaced
+// If a new item is getting cached, the closes item to being timed out will
+// be replaced.
 // Set to 0 to turn off
-func (cache *Cache) SetCacheSizeLimit(limit int) {
+func (cache *Cache[K, V]) SetCacheSizeLimit(limit int) {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	cache.sizeLimit = limit
 }
 
-// NewCache is a helper to create instance of the Cache struct
-func NewCache() *Cache {
-
+// NewCache creates a new instance of the Cache type.
+func NewCache[K comparable, V any]() *Cache[K, V] {
 	shutdownChan := make(chan chan struct{})
-
-	cache := &Cache{
-		items:                  make(map[string]*item),
+	cache := &Cache[K, V]{
+		items:                  make(map[K]*item[K, V]),
 		loaderLock:             &singleflight.Group{},
-		priorityQueue:          newPriorityQueue(),
+		priorityQueue:          newPriorityQueue[K, V](),
 		expirationNotification: make(chan bool, 1),
 		expirationTime:         time.Now(),
 		shutdownSignal:         shutdownChan,
@@ -578,15 +602,17 @@ func NewCache() *Cache {
 	return cache
 }
 
-// GetMetrics exposes the metrics of the cache. This is a snapshot copy of the metrics.
-func (cache *Cache) GetMetrics() Metrics {
+// GetMetrics exposes the metrics of the cache. This is a snapshot copy
+// of the metrics.
+func (cache *Cache[K, V]) GetMetrics() Metrics {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	return cache.metrics
 }
 
-// Touch resets the TTL of the key when it exists, returns ErrNotFound if the key is not present.
-func (cache *Cache) Touch(key string) error {
+// Touch resets the TTL of the key when it exists, returns ErrNotFound if
+// the key is not present.
+func (cache *Cache[K, V]) Touch(key K) error {
 	cache.mutex.Lock()
 	defer cache.mutex.Unlock()
 	item, exists := cache.items[key]
@@ -602,4 +628,9 @@ func min(duration time.Duration, second time.Duration) time.Duration {
 		return duration
 	}
 	return second
+}
+
+type loaderResult[V any] struct {
+	value V
+	ttl   time.Duration
 }

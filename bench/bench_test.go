@@ -9,7 +9,7 @@ import (
 )
 
 func BenchmarkCacheSetWithoutTTL(b *testing.B) {
-	cache := ttlcache.NewCache()
+	cache := ttlcache.NewCache[string, string]()
 	defer cache.Close()
 
 	for n := 0; n < b.N; n++ {
@@ -18,7 +18,7 @@ func BenchmarkCacheSetWithoutTTL(b *testing.B) {
 }
 
 func BenchmarkCacheSetWithGlobalTTL(b *testing.B) {
-	cache := ttlcache.NewCache()
+	cache := ttlcache.NewCache[string, string]()
 	defer cache.Close()
 
 	cache.SetTTL(time.Duration(50 * time.Millisecond))
@@ -28,7 +28,7 @@ func BenchmarkCacheSetWithGlobalTTL(b *testing.B) {
 }
 
 func BenchmarkCacheSetWithTTL(b *testing.B) {
-	cache := ttlcache.NewCache()
+	cache := ttlcache.NewCache[string, string]()
 	defer cache.Close()
 
 	for n := 0; n < b.N; n++ {
