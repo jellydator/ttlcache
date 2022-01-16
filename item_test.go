@@ -5,30 +5,41 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestItemExpired(t *testing.T) {
-	item := newItem("key", "value", (time.Duration(100) * time.Millisecond))
-	assert.Equal(t, item.expired(), false, "Expected item to not be expired")
-	<-time.After(200 * time.Millisecond)
-	assert.Equal(t, item.expired(), true, "Expected item to be expired once time has passed")
+func Test_newItem(t *testing.T) {
+	item := newItem("key", 123, time.Hour)
+	require.NotNil(t, item)
+	assert.Equal(t, "key", item.key)
+	assert.Equal(t, 123, item.value)
+	assert.Equal(t, time.Hour, item.ttl)
+	assert.WithinDuration(t, time.Now().Add(time.Hour), item.expiresAt, time.Minute)
 }
 
-func TestItemTouch(t *testing.T) {
-	item := newItem("key", "value", (time.Duration(100) * time.Millisecond))
-	oldExpireAt := item.expireAt
-	<-time.After(50 * time.Millisecond)
+func Test_item_touch(t *testing.T) {
+	var item item[string, string]
 	item.touch()
-	assert.NotEqual(t, oldExpireAt, item.expireAt, "Expected dates to be different")
-	<-time.After(150 * time.Millisecond)
-	assert.Equal(t, item.expired(), true, "Expected item to be expired")
+	assert.Zero(t, item.expiresAt)
+
+	item.ttl = time.Hour
 	item.touch()
-	<-time.After(50 * time.Millisecond)
-	assert.Equal(t, item.expired(), false, "Expected item to not be expired")
+	assert.WithinDuration(t, time.Now().Add(time.Hour), item.expiresAt, time.Minute)
 }
 
-func TestItemWithoutExpiration(t *testing.T) {
-	item := newItem("key", "value", ItemNotExpire)
-	<-time.After(50 * time.Millisecond)
-	assert.Equal(t, item.expired(), false, "Expected item to not be expired")
+func Test_item_isExpired(t *testing.T) {
+	// no ttl
+	item := item[string, string]{
+		expiresAt: time.Now().Add(-time.Hour),
+	}
+
+	assert.False(t, item.isExpired())
+
+	// expired
+	item.ttl = time.Hour
+	assert.True(t, item.isExpired())
+
+	// not expired
+	item.expiresAt = time.Now().Add(time.Hour)
+	assert.False(t, item.isExpired())
 }

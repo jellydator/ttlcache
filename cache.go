@@ -88,7 +88,7 @@ func (err constError) Error() string {
 
 func (cache *Cache[K, V]) getItem(key K) (*item[K, V], bool, bool) {
 	item, exists := cache.items[key]
-	if !exists || item.expired() {
+	if !exists || item.isExpired() {
 		return nil, false, false
 	}
 
@@ -104,9 +104,9 @@ func (cache *Cache[K, V]) getItem(key K) (*item[K, V], bool, bool) {
 
 	item.touch()
 
-	oldExpireTime := cache.priorityQueue.root().expireAt
+	oldExpireTime := cache.priorityQueue.root().expiresAt
 	cache.priorityQueue.update(item)
-	nowExpireTime := cache.priorityQueue.root().expireAt
+	nowExpireTime := cache.priorityQueue.root().expiresAt
 
 	expirationNotification := false
 
@@ -124,8 +124,8 @@ func (cache *Cache[K, V]) startExpirationProcessing() {
 		cache.mutex.Lock()
 		cache.hasNotified = false
 		if cache.priorityQueue.Len() > 0 {
-			sleepTime = time.Until(cache.priorityQueue.root().expireAt)
-			if sleepTime < 0 && cache.priorityQueue.root().expireAt.IsZero() {
+			sleepTime = time.Until(cache.priorityQueue.root().expiresAt)
+			if sleepTime < 0 && cache.priorityQueue.root().expiresAt.IsZero() {
 				sleepTime = time.Hour
 			} else if sleepTime < 0 {
 				sleepTime = time.Microsecond
@@ -182,7 +182,7 @@ func (cache *Cache[K, V]) checkExpirationCallback(item *item[K, V], reason Evict
 }
 
 func (cache *Cache[K, V]) removeItem(item *item[K, V], reason EvictionReason) {
-	cache.metrics.Evicted++
+	cache.metrics.Evictions++
 	cache.checkExpirationCallback(item, reason)
 	cache.priorityQueue.remove(item)
 	delete(cache.items, item.key)
@@ -202,7 +202,7 @@ func (cache *Cache[K, V]) evictjob(reason EvictionReason) {
 func (cache *Cache[K, V]) cleanjob() {
 	// index will only be advanced if the current entry will not be evicted
 	i := 0
-	for item := cache.priorityQueue.items[i]; item.expired(); item = cache.priorityQueue.items[i] {
+	for item := cache.priorityQueue.items[i]; item.isExpired(); item = cache.priorityQueue.items[i] {
 		if cache.checkExpireCallback != nil {
 			if !cache.checkExpireCallback(item.key, item.value) {
 				item.touch()
@@ -245,7 +245,7 @@ func (cache *Cache[K, V]) Close() error {
 
 // Set is a thread-safe way to add new items to the map.
 func (cache *Cache[K, V]) Set(key K, value V) error {
-	return cache.SetWithTTL(key, value, ItemExpireWithGlobalTTL)
+	return cache.SetWithTTL(key, value, DefaultExpiration)
 }
 
 // SetWithTTL is a thread-safe way to add new items to the map with
@@ -260,7 +260,7 @@ func (cache *Cache[K, V]) SetWithTTL(key K, value V, ttl time.Duration) error {
 
 	oldExpireTime := time.Time{}
 	if !cache.priorityQueue.isEmpty() {
-		oldExpireTime = cache.priorityQueue.root().expireAt
+		oldExpireTime = cache.priorityQueue.root().expiresAt
 	}
 
 	if exists {
@@ -273,7 +273,7 @@ func (cache *Cache[K, V]) SetWithTTL(key K, value V, ttl time.Duration) error {
 		item = newItem(key, value, ttl)
 		cache.items[key] = item
 	}
-	cache.metrics.Inserted++
+	cache.metrics.Inserts++
 
 	if item.ttl == 0 {
 		item.ttl = cache.ttl
@@ -287,7 +287,7 @@ func (cache *Cache[K, V]) SetWithTTL(key K, value V, ttl time.Duration) error {
 		cache.priorityQueue.push(item)
 	}
 
-	nowExpireTime := cache.priorityQueue.root().expireAt
+	nowExpireTime := cache.priorityQueue.root().expiresAt
 
 	cache.mutex.Unlock()
 	if !exists && cache.newItemCallback != nil {
@@ -341,7 +341,7 @@ func (cache *Cache[K, V]) GetByLoaderWithTtl(key K, customLoaderFunction LoaderF
 		if !cache.skipTTLExtension {
 			ttlToReturn = item.ttl
 		} else {
-			ttlToReturn = time.Until(item.expireAt)
+			ttlToReturn = time.Until(item.expiresAt)
 		}
 		if ttlToReturn < 0 {
 			ttlToReturn = 0
@@ -555,7 +555,7 @@ func (cache *Cache[K, V]) Purge() error {
 	if cache.isShutDown {
 		return ErrClosed
 	}
-	cache.metrics.Evicted += int64(len(cache.items))
+	cache.metrics.Evictions += uint64(len(cache.items))
 	cache.items = make(map[K]*item[K, V])
 	cache.priorityQueue = newPriorityQueue[K, V]()
 	return nil

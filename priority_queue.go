@@ -53,13 +53,13 @@ func (pq priorityQueue[K, V]) Len() int {
 // Less will consider items with time.Time default value (epoch start) as
 // more than set items.
 func (pq priorityQueue[K, V]) Less(i, j int) bool {
-	if pq.items[i].expireAt.IsZero() {
+	if pq.items[i].expiresAt.IsZero() {
 		return false
 	}
-	if pq.items[j].expireAt.IsZero() {
+	if pq.items[j].expiresAt.IsZero() {
 		return true
 	}
-	return pq.items[i].expireAt.Before(pq.items[j].expireAt)
+	return pq.items[i].expiresAt.Before(pq.items[j].expiresAt)
 }
 
 func (pq priorityQueue[K, V]) Swap(i, j int) {
