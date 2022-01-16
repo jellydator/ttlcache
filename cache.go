@@ -26,18 +26,6 @@ type ExpireReasonCallback[K comparable, V any] func(key K, reason EvictionReason
 // occurs. Supply an item specific ttl or Duration.Zero
 type LoaderFunction[K comparable, V any] func(key K) (value V, ttl time.Duration, err error)
 
-// SimpleCache interface enables a quick-start. Interface for basic usage.
-type SimpleCache[K comparable, V any] interface {
-	Get(key K) (V, error)
-	GetWithTTL(key K) (V, time.Duration, error)
-	Set(key K, value V) error
-	SetTTL(ttl time.Duration) error
-	SetWithTTL(key K, value V, ttl time.Duration) error
-	Remove(key K) error
-	Close() error
-	Purge() error
-}
-
 // Cache is a synchronized map of items that can auto-expire once stale.
 type Cache[K comparable, V any] struct {
 	// mutex is shared for all operations that need to be safe

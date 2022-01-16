@@ -20,19 +20,6 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
-// The SimpleCache interface enables quick-start.
-func TestCache_SimpleCache(t *testing.T) {
-	t.Parallel()
-	var cache SimpleCache[string, string] = NewCache[string, string]()
-
-	cache.SetTTL(time.Second)
-	cache.Set("k", "v")
-	cache.Get("k")
-	cache.Purge()
-	cache.Close()
-
-}
-
 // Issue 45 : This test was used to test different code paths for best performance.
 func TestCache_GetByLoaderRace(t *testing.T) {
 	t.Skip()
