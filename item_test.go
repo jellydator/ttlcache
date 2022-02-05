@@ -17,8 +17,8 @@ func Test_newItem(t *testing.T) {
 	assert.WithinDuration(t, time.Now().Add(time.Hour), item.expiresAt, time.Minute)
 }
 
-func Test_item_touch(t *testing.T) {
-	var item item[string, string]
+func Test_Item_touch(t *testing.T) {
+	var item Item[string, string]
 	item.touch()
 	assert.Zero(t, item.expiresAt)
 
@@ -27,9 +27,9 @@ func Test_item_touch(t *testing.T) {
 	assert.WithinDuration(t, time.Now().Add(time.Hour), item.expiresAt, time.Minute)
 }
 
-func Test_item_isExpired(t *testing.T) {
+func Test_Item_isExpired(t *testing.T) {
 	// no ttl
-	item := item[string, string]{
+	item := Item[string, string]{
 		expiresAt: time.Now().Add(-time.Hour),
 	}
 

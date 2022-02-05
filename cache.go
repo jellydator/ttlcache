@@ -1,6 +1,7 @@
 package ttlcache
 
 import (
+	"container/list"
 	"fmt"
 	"sync"
 	"time"
@@ -8,617 +9,508 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-// CheckExpireCallback is used as a callback for an external check on item
-// expiration.
-type CheckExpireCallback[K comparable, V any] func(key K, value V) bool
+const (
+	EvictionReasonDeleted EvictionReason = iota + 1
+	EvictionReasonCapacityReached
+	EvictionReasonExpired
+)
 
-// ExpireCallback is used as a callback on item expiration or when notifying
-// of an item new to the cache.
-// Note that ExpireReasonCallback will be the successor of this function in
-// the next major release.
-type ExpireCallback[K comparable, V any] func(key K, value V)
-
-// ExpireReasonCallback is used as a callback on item expiration with extra
-// information why the item expired.
-type ExpireReasonCallback[K comparable, V any] func(key K, reason EvictionReason, value V)
-
-// LoaderFunction can be supplied to retrieve an item where a cache miss
-// occurs. Supply an item specific ttl or Duration.Zero
-type LoaderFunction[K comparable, V any] func(key K) (value V, ttl time.Duration, err error)
-
-// Cache is a synchronized map of items that can auto-expire once stale.
-type Cache[K comparable, V any] struct {
-	// mutex is shared for all operations that need to be safe
-	mutex sync.Mutex
-	// ttl is the global ttl for the cache, can be zero (is infinite)
-	ttl time.Duration
-	// actual item storage
-	items map[K]*item[K, V]
-	// lock used to avoid fetching a remote item multiple times
-	loaderLock           *singleflight.Group
-	expireCallback       ExpireCallback[K, V]
-	expireReasonCallback ExpireReasonCallback[K, V]
-	checkExpireCallback  CheckExpireCallback[K, V]
-	newItemCallback      ExpireCallback[K, V]
-	// the queue is used to have an ordered structure to use for
-	// expiration and cleanup.
-	priorityQueue          *priorityQueue[K, V]
-	expirationNotification chan bool
-	// hasNotified is used to not schedule new expiration processing
-	// when a request is already pending.
-	hasNotified      bool
-	expirationTime   time.Time
-	skipTTLExtension bool
-	shutdownSignal   chan (chan struct{})
-	isShutDown       bool
-	loaderFunction   LoaderFunction[K, V]
-	sizeLimit        int
-	metrics          Metrics
-}
-
-// EvictionReason is an enum that explains why an item was evicted.
 type EvictionReason int
 
-const (
-	// Removed : explicitly removed from cache via API call.
-	Removed EvictionReason = iota
-	// EvictedSize : evicted due to exceeding the cache size.
-	EvictedSize
-	// Expired : the time to live is zero and therefore the item is
-	// removed.
-	Expired
-	// Closed : the cache was closed.
-	Closed
-)
+// Cache is a synchronised map of items that are automatically removed
+// when they expire or the capacity is reached.
+type Cache[K comparable, V any] struct {
+	items struct {
+		mu     sync.RWMutex
+		values map[K]*list.Element
 
-const (
-	// ErrClosed is raised when operating on a cache where Close() has
-	// already been called.
-	ErrClosed = constError("cache already closed")
-	// ErrNotFound indicates that the requested key is not present
-	// in the cache
-	ErrNotFound = constError("key not found")
-)
+		// a generic doubly linked list would be more convenient
+		// (and more performant?). It's possible that this
+		// will be introduced with/in go1.19+
+		lru      *list.List
+		expQueue expirationQueue[K, V]
 
-type constError string
+		timerCh chan time.Duration
+	}
 
-func (err constError) Error() string {
-	return string(err)
+	metricsMu sync.RWMutex
+	metrics   Metrics
+
+	events struct {
+		evictionFnsMu sync.RWMutex
+		evictionFns   []func(EvictionReason, *Item[K, V])
+
+		insertFnsMu sync.RWMutex
+		insertFns   []func(*Item[K, V])
+	}
+
+	loader Loader
+
+	stopCh chan struct{}
+
+	capacity   uint64
+	defaultTTL time.Duration
 }
 
-func (cache *Cache[K, V]) getItem(key K) (*item[K, V], bool, bool) {
-	item, exists := cache.items[key]
-	if !exists || item.isExpired() {
-		return nil, false, false
+// New creates a new instance of cache.
+func New[K comparable, V any]() *Cache[K, V] {
+	c := &Cache[K, V]{
+		loaderGroup: &singleflight.Group{},
+		stopCh:      make(chan struct{}),
 	}
+	c.items.values = make(map[K]*list.Element)
+	c.items.lru = list.New()
+	c.items.expQueue = newExpirationQueue[K, V]()
+	c.items.timerCh = make(chan time.Duration, 1) // buffer is important
 
-	// no need to change priority queue when skipTTLExtension is true or
-	// the item will not expire
-	if cache.skipTTLExtension || (item.ttl == 0 && cache.ttl == 0) {
-		return item, true, false
-	}
-
-	if item.ttl == 0 {
-		item.ttl = cache.ttl
-	}
-
-	item.touch()
-
-	oldExpireTime := cache.priorityQueue.root().expiresAt
-	cache.priorityQueue.update(item)
-	nowExpireTime := cache.priorityQueue.root().expiresAt
-
-	expirationNotification := false
-
-	// notify expiration only if the latest expire time is changed
-	if (oldExpireTime.IsZero() && !nowExpireTime.IsZero()) || oldExpireTime.After(nowExpireTime) {
-		expirationNotification = true
-	}
-	return item, exists, expirationNotification
+	return c
 }
 
-func (cache *Cache[K, V]) startExpirationProcessing() {
-	timer := time.NewTimer(time.Hour)
-	for {
-		var sleepTime time.Duration
-		cache.mutex.Lock()
-		cache.hasNotified = false
-		if cache.priorityQueue.Len() > 0 {
-			sleepTime = time.Until(cache.priorityQueue.root().expiresAt)
-			if sleepTime < 0 && cache.priorityQueue.root().expiresAt.IsZero() {
-				sleepTime = time.Hour
-			} else if sleepTime < 0 {
-				sleepTime = time.Microsecond
-			}
-			if cache.ttl > 0 {
-				sleepTime = min(sleepTime, cache.ttl)
-			}
+// updateExpirations updates the expiration queue and notifies
+// the cache auto cleaner if needed.
+// Not concurrently safe.
+func (c *Cache[K, V]) updateExpirations(fresh bool, elem *list.Element) {
+	var oldExpiresAt time.Time
 
-		} else if cache.ttl > 0 {
-			sleepTime = cache.ttl
-		} else {
-			sleepTime = time.Hour
-		}
-
-		cache.expirationTime = time.Now().Add(sleepTime)
-		cache.mutex.Unlock()
-
-		timer.Reset(sleepTime)
-		select {
-		case shutdownFeedback := <-cache.shutdownSignal:
-			timer.Stop()
-			cache.mutex.Lock()
-			if cache.priorityQueue.Len() > 0 {
-				cache.evictjob(Closed)
-			}
-			cache.mutex.Unlock()
-			shutdownFeedback <- struct{}{}
-			return
-		case <-timer.C:
-			timer.Stop()
-			cache.mutex.Lock()
-			if cache.priorityQueue.Len() == 0 {
-				cache.mutex.Unlock()
-				continue
-			}
-
-			cache.cleanjob()
-			cache.mutex.Unlock()
-
-		case <-cache.expirationNotification:
-			timer.Stop()
-			continue
-		}
+	if !c.items.expQueue.isEmpty() {
+		oldExpiresAt = c.items.expQueue[0].Value.(*Item[K, V]).expiresAt
 	}
-}
 
-func (cache *Cache[K, V]) checkExpirationCallback(item *item[K, V], reason EvictionReason) {
-	if cache.expireCallback != nil {
-		go cache.expireCallback(item.key, item.value)
-	}
-	if cache.expireReasonCallback != nil {
-		go cache.expireReasonCallback(item.key, reason, item.value)
-	}
-}
-
-func (cache *Cache[K, V]) removeItem(item *item[K, V], reason EvictionReason) {
-	cache.metrics.Evictions++
-	cache.checkExpirationCallback(item, reason)
-	cache.priorityQueue.remove(item)
-	delete(cache.items, item.key)
-}
-
-func (cache *Cache[K, V]) evictjob(reason EvictionReason) {
-	// index will only be advanced if the current entry will not be evicted
-	i := 0
-	for item := cache.priorityQueue.items[i]; ; item = cache.priorityQueue.items[i] {
-		cache.removeItem(item, reason)
-		if cache.priorityQueue.Len() == 0 {
-			return
-		}
-	}
-}
-
-func (cache *Cache[K, V]) cleanjob() {
-	// index will only be advanced if the current entry will not be evicted
-	i := 0
-	for item := cache.priorityQueue.items[i]; item.isExpired(); item = cache.priorityQueue.items[i] {
-		if cache.checkExpireCallback != nil {
-			if !cache.checkExpireCallback(item.key, item.value) {
-				item.touch()
-				cache.priorityQueue.update(item)
-				i++
-				if i == cache.priorityQueue.Len() {
-					break
-				}
-				continue
-			}
-		}
-
-		cache.removeItem(item, Expired)
-		if cache.priorityQueue.Len() == 0 {
-			return
-		}
-	}
-}
-
-// Close calls Purge after stopping the goroutine that does ttl checking,
-// for a clean shutdown.
-// The cache is no longer cleaning up after the first call to Close, repeated
-// calls are safe and return ErrClosed.
-func (cache *Cache[K, V]) Close() error {
-	cache.mutex.Lock()
-	if !cache.isShutDown {
-		cache.isShutDown = true
-		cache.mutex.Unlock()
-		feedback := make(chan struct{})
-		cache.shutdownSignal <- feedback
-		<-feedback
-		close(cache.shutdownSignal)
-		cache.Purge()
+	if fresh {
+		c.items.expQueue.push(elem)
 	} else {
-		cache.mutex.Unlock()
-		return ErrClosed
-	}
-	return nil
-}
-
-// Set is a thread-safe way to add new items to the map.
-func (cache *Cache[K, V]) Set(key K, value V) error {
-	return cache.SetWithTTL(key, value, DefaultExpiration)
-}
-
-// SetWithTTL is a thread-safe way to add new items to the map with
-// individual ttl.
-func (cache *Cache[K, V]) SetWithTTL(key K, value V, ttl time.Duration) error {
-	cache.mutex.Lock()
-	if cache.isShutDown {
-		cache.mutex.Unlock()
-		return ErrClosed
-	}
-	item, exists, _ := cache.getItem(key)
-
-	oldExpireTime := time.Time{}
-	if !cache.priorityQueue.isEmpty() {
-		oldExpireTime = cache.priorityQueue.root().expiresAt
+		c.items.expQueue.update(elem)
 	}
 
-	if exists {
-		item.value = value
-		item.ttl = ttl
-	} else {
-		if cache.sizeLimit != 0 && len(cache.items) >= cache.sizeLimit {
-			cache.removeItem(cache.priorityQueue.items[0], EvictedSize)
-		}
-		item = newItem(key, value, ttl)
-		cache.items[key] = item
-	}
-	cache.metrics.Inserts++
+	newExpiresAt := c.items.expQueue[0].Value.(*Item[K, V]).expiresAt
 
-	if item.ttl == 0 {
-		item.ttl = cache.ttl
-	}
-
-	item.touch()
-
-	if exists {
-		cache.priorityQueue.update(item)
-	} else {
-		cache.priorityQueue.push(item)
-	}
-
-	nowExpireTime := cache.priorityQueue.root().expiresAt
-
-	cache.mutex.Unlock()
-	if !exists && cache.newItemCallback != nil {
-		cache.newItemCallback(key, value)
-	}
-
-	// notify expiration only if the latest expire time is changed
-	if (oldExpireTime.IsZero() && !nowExpireTime.IsZero()) || oldExpireTime.After(nowExpireTime) {
-		cache.notifyExpiration()
-	}
-	return nil
-}
-
-// Get is a thread-safe way to lookup items.
-// Every lookup, also touches the item, hence extending its life.
-func (cache *Cache[K, V]) Get(key K) (V, error) {
-	return cache.GetByLoader(key, nil)
-}
-
-// GetWithTTL has exactly the same behaviour as Get but also returns
-// the remaining TTL for a specific item at the moment its retrieved.
-func (cache *Cache[K, V]) GetWithTTL(key K) (V, time.Duration, error) {
-	return cache.GetByLoaderWithTtl(key, nil)
-}
-
-// GetByLoader can take a per key loader function (i.e. to propagate context).
-func (cache *Cache[K, V]) GetByLoader(key K, customLoaderFunction LoaderFunction[K, V]) (V, error) {
-	valueToReturn, _, err := cache.GetByLoaderWithTtl(key, customLoaderFunction)
-
-	return valueToReturn, err
-}
-
-// GetByLoaderWithTtl can take a per key loader function (i.e. to propagate
-// context)
-func (cache *Cache[K, V]) GetByLoaderWithTtl(key K, customLoaderFunction LoaderFunction[K, V]) (V, time.Duration, error) {
-	cache.mutex.Lock()
-	if cache.isShutDown {
-		cache.mutex.Unlock()
-		var empty V
-		return empty, 0, ErrClosed
-	}
-
-	cache.metrics.Hits++
-	item, exists, triggerExpirationNotification := cache.getItem(key)
-
-	var valueToReturn V
-	ttlToReturn := time.Duration(0)
-	if exists {
-		cache.metrics.Retrievals++
-		valueToReturn = item.value
-		if !cache.skipTTLExtension {
-			ttlToReturn = item.ttl
-		} else {
-			ttlToReturn = time.Until(item.expiresAt)
-		}
-		if ttlToReturn < 0 {
-			ttlToReturn = 0
-		}
-	}
-
-	var err error
-	if !exists {
-		cache.metrics.Misses++
-		err = ErrNotFound
-	}
-
-	loaderFunction := cache.loaderFunction
-	if customLoaderFunction != nil {
-		loaderFunction = customLoaderFunction
-	}
-
-	if loaderFunction == nil || exists {
-		cache.mutex.Unlock()
-	}
-
-	if loaderFunction != nil && !exists {
-		loaderKey := fmt.Sprint(key)
-		ch := cache.loaderLock.DoChan(loaderKey, func() (interface{}, error) {
-			// cache is not blocked during io
-			invokeValue, ttl, err := cache.invokeLoader(key, loaderFunction)
-			lr := &loaderResult[V]{
-				value: invokeValue,
-				ttl:   ttl,
-			}
-			return lr, err
-		})
-		cache.mutex.Unlock()
-		res := <-ch
-		valueToReturn = res.Val.(*loaderResult[V]).value
-		ttlToReturn = res.Val.(*loaderResult[V]).ttl
-		err = res.Err
-	}
-
-	if triggerExpirationNotification {
-		cache.notifyExpiration()
-	}
-
-	return valueToReturn, ttlToReturn, err
-}
-
-func (cache *Cache[K, V]) notifyExpiration() {
-	cache.mutex.Lock()
-	if cache.hasNotified {
-		cache.mutex.Unlock()
+	// check if the closest/soonest expiration timestamp changed
+	if newExpiresAt.IsZero() || (!oldExpiresAt.IsZero() && !newExpiresAt.Before(oldExpiresAt)) {
 		return
 	}
-	cache.hasNotified = true
-	cache.mutex.Unlock()
 
-	cache.expirationNotification <- true
-}
+	d := time.Until(newExpiresAt)
 
-func (cache *Cache[K, V]) invokeLoader(key K, loaderFunction LoaderFunction[K, V]) (valueToReturn V, ttl time.Duration, err error) {
-	valueToReturn, ttl, err = loaderFunction(key)
-	if err == nil {
-		err = cache.SetWithTTL(key, valueToReturn, ttl)
-		if err != nil {
-			var empty V
-			valueToReturn = empty
+	// It's possible that the auto cleaner isn't active or
+	// is busy, so we need to drain the channel before
+	// sending a new value.
+	// Also, since this method is called after locking the items' mutex,
+	// we can be sure that there is no other concurrent call of this
+	// method
+	if len(c.items.timerCh) > 0 {
+		// we need to drain this channel in a select with a default
+		// case because it's possible that the auto cleaner
+		// read this channel just after we entered this if
+		select {
+		case d1 := <-c.items.timerCh:
+			if d1 < d {
+				d = d1
+			}
+		default:
 		}
 	}
-	return valueToReturn, ttl, err
+
+	// since the channel has a size 1 buffer, we can be sure
+	// that the line below won't block (we can't overfill the buffer
+	// because we just drained it)
+	c.items.timerCh <- d
 }
 
-// Remove removes an item from the cache if it exists, triggers expiration
-// callback when set. Can return ErrNotFound if the entry was not present.
-func (cache *Cache[K, V]) Remove(key K) error {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-	if cache.isShutDown {
-		return ErrClosed
+// set creates a new item, adds it to the cache and then returns it.
+// Not concurrently safe.
+func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
+	if ttl == DefaultTTL {
+		ttl = c.defaultTTL
 	}
 
-	object, exists := cache.items[key]
-	if !exists {
-		return ErrNotFound
-	}
-	cache.removeItem(object, Removed)
+	elem := c.get(key, false)
+	if elem != nil {
+		// update/overwrite an existing item
+		item := elem.Value.(*Item[K, V])
+		item.value = value
+		item.ttl = ttl
 
-	return nil
+		// the item may already be expired but not yet
+		// cleaned/removed
+		item.expiresAt = time.Time{}
+
+		item.touch()
+		c.items.lru.MoveToFront(elem)
+		c.updateExpirations(false, elem)
+
+		return item
+	}
+
+	if c.capacity != 0 && uint64(len(c.items.values)) >= c.capacity {
+		// delete the oldest item
+		c.evict(EvictionReasonCapacityReached, c.items.lru.Back())
+	}
+
+	// create a new item
+	item := newItem(key, value, ttl)
+	elem = c.items.lru.PushFront(item)
+	c.items.values[key] = elem
+	c.updateExpirations(true, elem)
+
+	c.metricsMu.Lock()
+	c.metrics.Inserts++
+	c.metricsMu.Unlock()
+
+	c.events.insertFnsMu.RLock()
+	for _, fn := range c.events.insertFns {
+		go fn(item)
+	}
+	c.events.insertFnsMu.RUnlock()
+
+	return item
 }
 
-// Count returns the number of items in the cache. Returns zero when the
-// cache has been closed.
-func (cache *Cache[K, V]) Count() int {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-
-	if cache.isShutDown {
-		return 0
-	}
-	length := len(cache.items)
-	return length
-}
-
-// GetKeys returns all keys of items in the cache. Returns nil when the cache
-// has been closed.
-func (cache *Cache[K, V]) GetKeys() []K {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-
-	if cache.isShutDown {
+// get retrieves an item from the cache and extends its expiration
+// time/modifies its position in the LRU list if 'update' is set to true.
+// It returns nil if the item is not found or is expired.
+// Not concurrently safe.
+func (c *Cache[K, V]) get(key K, update bool) *list.Element {
+	elem := c.items.values[key]
+	if elem == nil {
 		return nil
 	}
-	keys := make([]K, len(cache.items))
-	i := 0
-	for k := range cache.items {
-		keys[i] = k
-		i++
-	}
-	return keys
-}
 
-// GetItems returns a copy of all items in the cache. Returns nil when 
-// the cache has been closed.
-func (cache *Cache[K, V]) GetItems() map[K]V {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-
-	if cache.isShutDown {
+	item := elem.Value.(*Item[K, V])
+	if item.isExpired() {
 		return nil
 	}
-	items := make(map[K]V, len(cache.items))
-	for k := range cache.items {
-		item, exists, _ := cache.getItem(k)
-		if exists {
-			items[k] = item.value
+
+	if !update {
+		return elem
+	}
+
+	if item.ttl > 0 {
+		item.touch()
+		c.updateExpirations(false, elem)
+	}
+
+	c.items.lru.MoveToFront(elem)
+
+	return elem
+}
+
+// evict deletes items from the cache.
+// If no items are provided, all currently present cache items
+// are evicted.
+// Not concurrently safe.
+func (c *Cache[K, V]) evict(reason EvictionReason, elems ...*list.Element) {
+	if len(elems) > 0 {
+		c.metricsMu.Lock()
+		c.metrics.Evictions += uint64(len(elems))
+		c.metricsMu.Unlock()
+
+		c.events.evictionFnsMu.RLock()
+		for i := range elems {
+			item := elems[i].Value.(*Item[K, V])
+			delete(c.items.values, item.key)
+			c.items.lru.Remove(elems[i])
+			c.items.expQueue.remove(elems[i])
+
+			for _, fn := range c.events.evictionFns {
+				go fn(reason, item)
+			}
+		}
+		c.events.evictionFnsMu.RUnlock()
+
+		return
+	}
+
+	c.metricsMu.Lock()
+	c.metrics.Evictions += uint64(len(c.items.values))
+	c.metricsMu.Unlock()
+
+	c.events.evictionFnsMu.RLock()
+	for _, elem := range c.items.values {
+		item := elem.Value.(*Item[K, V])
+
+		for _, fn := range c.events.evictionFns {
+			go fn(reason, item)
 		}
 	}
+	c.events.evictionFnsMu.RUnlock()
+
+	c.items.values = make(map[K]*list.Element)
+	c.items.lru.Init()
+	c.items.expQueue = newExpirationQueue[K, V]()
+}
+
+// Set creates a new item from the provided key and value, adds
+// it to the cache and then returns it. If an item associated with the
+// provided key already exists, the new item overwrites the existing one.
+func (c *Cache[K, V]) Set(key K, value V, ttl time.Duration) *Item[K, V] {
+	c.items.mu.Lock()
+	defer c.items.mu.Unlock()
+
+	return c.set(key, value, ttl)
+}
+
+// Get retrieves an item from the cache by the provided key.
+// If the item is not found, a nil value is returned.
+func (c *Cache[K, V]) Get(key K) *Item[K, V] {
+	c.items.mu.Lock()
+	elem := c.get(key, true)
+	c.items.mu.Unlock()
+
+	if elem != nil {
+		c.metricsMu.Lock()
+		c.metrics.Hits++
+		c.metricsMu.Unlock()
+
+		return elem.Value.(*Item[K, V])
+	}
+
+	c.metricsMu.Lock()
+	c.metrics.Misses++
+	c.metricsMu.Unlock()
+
+	if c.loader == nil {
+		return nil
+	}
+
+	c.items.mu.Lock()
+	defer c.items.mu.Unlock()
+
+	// we don't want to extend expiration if the item is found
+	elem := c.items.values[key]
+	if elem == nil {
+		val, ttl, ok := c.loader.Load(key)
+		if !ok {
+			return nil
+		}
+
+		return c.set(key, val, ttl)
+	}
+
+	return elem.(*Item[K, V])
+}
+
+// Delete deletes an item from the cache. If the item associated with
+// the key is not found, the method is no-op.
+func (c *Cache[K, V]) Delete(key K) {
+	c.items.mu.Lock()
+	defer c.items.mu.Unlock()
+
+	elem := c.items.values[key]
+	if elem == nil {
+		return
+	}
+
+	c.evict(EvictionReasonDeleted, elem)
+}
+
+// DeleteAll deletes all items from the cache.
+func (c *Cache[K, V]) DeleteAll() {
+	c.items.mu.Lock()
+	c.evict(EvictionReasonDeleted)
+	c.items.mu.Unlock()
+}
+
+// DeleteExpired deletes all expired items from the cache.
+func (c *Cache[K, V]) DeleteExpired() {
+	c.items.mu.Lock()
+	defer c.items.mu.Unlock()
+
+	if c.items.expQueue.isEmpty() {
+		return
+	}
+
+	e := c.items.expQueue[0]
+	for e.Value.(*Item[K, V]).isExpired() {
+		c.evict(EvictionReasonExpired, e)
+
+		if c.items.expQueue.isEmpty() {
+			break
+		}
+
+		// expiration queue has a new root
+		e = c.items.expQueue[0]
+	}
+}
+
+// Touch updates an item's expiration time and its LRU position
+// by the provided key.
+// If the item is not found, the method is no-op.
+func (c *Cache[K, V]) Touch(key K) {
+	c.items.mu.Lock()
+	c.get(key, true)
+	c.items.mu.Unlock()
+}
+
+// Len returns the number of items in the cache.
+func (c *Cache[K, V]) Len() int {
+	c.items.mu.RLock()
+	defer c.items.mu.RUnlock()
+
+	return len(c.items.values)
+}
+
+// Keys returns all keys currently present in the cache.
+func (c *Cache[K, V]) Keys() []K {
+	c.items.mu.RLock()
+	defer c.items.mu.RUnlock()
+
+	res := make([]K, 0, len(c.items.values))
+	for k := range c.items.values {
+		res = append(res, k)
+	}
+
+	return res
+}
+
+// Items returns a copy of all items in the cache.
+// It does not update any expiration times or LRU positions.
+func (c *Cache[K, V]) Items() map[K]*Item[K, V] {
+	c.items.mu.RLock()
+	defer c.items.mu.RUnlock()
+
+	items := make(map[K]*Item[K, V], len(c.items.values))
+	for k := range c.items.values {
+		item := c.get(k, false)
+		if item != nil {
+			items[k] = item.Value.(*Item[K, V])
+		}
+	}
+
 	return items
 }
 
-// SetTTL sets the global TTL value for items in the cache, which can be
-// overridden at the item level.
-func (cache *Cache[K, V]) SetTTL(ttl time.Duration) error {
-	cache.mutex.Lock()
+// Metrics returns the metrics of the cache.
+func (c *Cache[K, V]) Metrics() Metrics {
+	c.metricsMu.RLock()
+	defer c.metricsMu.RUnlock()
 
-	if cache.isShutDown {
-		cache.mutex.Unlock()
-		return ErrClosed
+	return c.metrics
+}
+
+// Start starts an automatic cleanup process that
+// periodically deletes expired items.
+// It blocks until Stop is called.
+func (c *Cache[K, V]) Start() {
+	waitDur := func() time.Duration {
+		c.items.mu.RLock()
+		defer c.items.mu.RUnlock()
+
+		if !c.items.expQueue.isEmpty() &&
+			!c.items.expQueue[0].Value.(*Item[K, V]).expiresAt.IsZero() {
+			d := time.Until(c.items.expQueue[0].Value.(*Item[K, V]).expiresAt)
+			if d <= 0 {
+				// execute immediately
+				return time.Microsecond
+			}
+
+			return d
+		}
+
+		if c.defaultTTL > 0 {
+			return c.defaultTTL
+		}
+
+		return time.Hour
 	}
-	cache.ttl = ttl
-	cache.mutex.Unlock()
-	cache.notifyExpiration()
-	return nil
-}
 
-// SetExpirationCallback sets a callback that will be called when an item
-// expires.
-func (cache *Cache[K, V]) SetExpirationCallback(callback ExpireCallback[K, V]) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-	cache.expireCallback = callback
-}
-
-// SetExpirationReasonCallback sets a callback that will be called when an
-// item expires, includes reason of expiry.
-func (cache *Cache[K, V]) SetExpirationReasonCallback(callback ExpireReasonCallback[K, V]) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-	cache.expireReasonCallback = callback
-}
-
-// SetCheckExpirationCallback sets a callback that will be called when an
-// item is about to expire in order to allow external code to decide whether
-// the item expires or remains for another TTL cycle
-func (cache *Cache[K, V]) SetCheckExpirationCallback(callback CheckExpireCallback[K, V]) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-	cache.checkExpireCallback = callback
-}
-
-// SetNewItemCallback sets a callback that will be called when a new item
-// is added to the cache.
-func (cache *Cache[K, V]) SetNewItemCallback(callback ExpireCallback[K, V]) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-	cache.newItemCallback = callback
-}
-
-// SkipTTLExtensionOnHit allows the user to change the cache behaviour. When
-// this flag is set to true it will no longer extend TTL of items when they
-// are retrieved using Get, or when their expiration condition is evaluated
-// using SetCheckExpirationCallback.
-func (cache *Cache[K, V]) SkipTTLExtensionOnHit(value bool) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-	cache.skipTTLExtension = value
-}
-
-// SetLoaderFunction allows you to set a function to retrieve cache misses.
-// The signature matches that of the Get function.
-// Additional Get calls on the same key block while fetching is in progress
-// (groupcache style).
-func (cache *Cache[K, V]) SetLoaderFunction(loader LoaderFunction[K, V]) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-	cache.loaderFunction = loader
-}
-
-// Purge will remove all entries.
-func (cache *Cache[K, V]) Purge() error {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-	if cache.isShutDown {
-		return ErrClosed
+	timer := time.NewTimer(waitDur())
+	stop := func() {
+		if !timer.Stop() {
+			// drain the timer chan
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
 	}
-	cache.metrics.Evictions += uint64(len(cache.items))
-	cache.items = make(map[K]*item[K, V])
-	cache.priorityQueue = newPriorityQueue[K, V]()
-	return nil
-}
 
-// SetCacheSizeLimit sets a limit to the amount of cached items.
-// If a new item is getting cached, the closes item to being timed out will
-// be replaced.
-// Set to 0 to turn off
-func (cache *Cache[K, V]) SetCacheSizeLimit(limit int) {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-	cache.sizeLimit = limit
-}
+	defer stop()
 
-// NewCache creates a new instance of the Cache type.
-func NewCache[K comparable, V any]() *Cache[K, V] {
-	shutdownChan := make(chan chan struct{})
-	cache := &Cache[K, V]{
-		items:                  make(map[K]*item[K, V]),
-		loaderLock:             &singleflight.Group{},
-		priorityQueue:          newPriorityQueue[K, V](),
-		expirationNotification: make(chan bool, 1),
-		expirationTime:         time.Now(),
-		shutdownSignal:         shutdownChan,
-		isShutDown:             false,
-		loaderFunction:         nil,
-		sizeLimit:              0,
-		metrics:                Metrics{},
+	for {
+		select {
+		case <-c.stopCh:
+			return
+		case d := <-c.items.timerCh:
+			stop()
+			timer.Reset(d)
+		case <-timer.C:
+			c.DeleteExpired()
+			stop()
+			timer.Reset(waitDur())
+		}
 	}
-	go cache.startExpirationProcessing()
-	return cache
 }
 
-// GetMetrics exposes the metrics of the cache. This is a snapshot copy
-// of the metrics.
-func (cache *Cache[K, V]) GetMetrics() Metrics {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-	return cache.metrics
+// Stop stops the automatic cleanup process.
+// It blocks until the cleanup process exits.
+func (c *Cache[K, V]) Stop() {
+	c.stopCh <- struct{}{}
 }
 
-// Touch resets the TTL of the key when it exists, returns ErrNotFound if
-// the key is not present.
-func (cache *Cache[K, V]) Touch(key K) error {
-	cache.mutex.Lock()
-	defer cache.mutex.Unlock()
-	item, exists := cache.items[key]
-	if !exists {
-		return ErrNotFound
+// Loader is an interface that handles missing data loading.
+type Loader[K comparable, V any] interface {
+	// Load should return a value and its TTL by the provided key.
+	// The bool return value should indicate whether the value
+	// and TTL are valid or not (true == valid).
+	Load(key K) (V, time.Duration, bool)
+}
+
+// LoaderFunc type is an adapter that allows the use of ordinary
+// functions as data loaders.
+type LoaderFunc[K comparable, V any] func(K) (V, time.Duration, bool)
+
+// Load returns a value and its TTL by the provided key.
+// The bool return value indicates whether the value
+// and TTL are valid or not (true == valid).
+func (l LoaderFunc[K, V]) Load(key K) (V, time.Duration, bool) {
+	return l(key)
+}
+
+// SyncLoader wraps another Loader and supresses duplicate
+// calls to its Load method.
+type SyncLoader[K comparable, V any] struct {
+	group *singleflight.Group
+	l     Loader[K, V]
+}
+
+// Load returns a value and its TTL by the provided key.
+// The bool return value indicates whether the value
+// and TTL are valid or not (true == valid).
+// It also ensures that only one execution of the wrapped Loader's Load
+// method is in-flight for a given key at a time.
+func (l *SyncLoader[K, V]) Load(key K) (V, time.Duration, bool) {
+	// there should be a better/generic way to create a
+	// singleflight Group's key. It's possible that a generic
+	// singleflight.Group will be introduced with/in go1.19+
+	strKey := fmt.Sprint(key)
+
+	// the error can be discarded since the singleflight.Group
+	// itself does not return any of its errors, it returns
+	// the errors that we return ourselves in the func below (all of
+	// them are nil)
+	resInterf, _, _ := l.group.Do(strKey, func() (interface{}, error) {
+		value, ttl, ok := l.l.Load(key)
+		if !ok {
+			return nil, nil
+		}
+
+		return &syncLoaderResult{
+			value: value,
+			ttl:   ttl,
+		}, nil
+	})
+	if res == nil {
+		var empty V
+		return empty, 0, false
 	}
-	item.touch()
-	return nil
+
+	res := resInterf.(*syncLoaderResult)
+
+	return res.value, res.ttl, true
 }
 
-func min(duration time.Duration, second time.Duration) time.Duration {
-	if duration < second {
-		return duration
-	}
-	return second
-}
-
-type loaderResult[V any] struct {
+// syncLoaderResult is the result type of SyncLoader.
+type syncLoaderResult[V any] struct {
 	value V
 	ttl   time.Duration
 }
