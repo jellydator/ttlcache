@@ -9,12 +9,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
+	"golang.org/x/sync/singleflight"
 )
+
+func TestMain(m *testing.M) {
+	goleak.VerifyTestMain(m)
+}
 
 func Test_New(t *testing.T) {
 	c := New[string, string]()
 	require.NotNil(t, c)
-	assert.NotNil(t, c.loaderGroup)
 	assert.NotNil(t, c.stopCh)
 	assert.NotNil(t, c.items.values)
 	assert.NotNil(t, c.items.lru)
@@ -463,7 +468,66 @@ func Test_Cache_Set(t *testing.T) {
 }
 
 func Test_Cache_Get(t *testing.T) {
-	//cache := prepCache(time.Hour, "test1", "test2", "test3")
+	const notFoundKey, foundKey = "notfound", "test1"
+	cc := map[string]struct {
+		Key     string
+		Loader  Loader[string, string]
+		Metrics Metrics
+		Result  *Item[string, string]
+	}{
+		"Get without loader when item is not found": {
+			Key: notFoundKey,
+			Metrics: Metrics{
+				Misses: 1,
+			},
+		},
+		"Get with loader that returns non nil value when item is not found": {
+			Key: notFoundKey,
+			Loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+				return &Item[string, string]{key: "test"}
+			}),
+			Metrics: Metrics{
+				Misses: 1,
+			},
+			Result: &Item[string, string]{key: "test"},
+		},
+		"Get with loader that returns nil value when item is not found": {
+			Key: notFoundKey,
+			Loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+				return nil
+			}),
+			Metrics: Metrics{
+				Misses: 1,
+			},
+		},
+		"Get when item is found": {
+			Key: foundKey,
+			Metrics: Metrics{
+				Hits: 1,
+			},
+		},
+	}
+
+	for cn, c := range cc {
+		c := c
+
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			cache := prepCache(time.Minute, foundKey, "test2", "test3")
+			cache.loader = c.Loader
+
+			res := cache.Get(c.Key)
+
+			if c.Key == foundKey {
+				c.Result = cache.items.values[foundKey].Value.(*Item[string, string])
+				assert.Equal(t, foundKey, cache.items.lru.Front().Value.(*Item[string, string]).key)
+			}
+
+			assert.Equal(t, c.Result, res)
+			assert.Equal(t, c.Metrics, cache.metrics)
+		})
+	}
 }
 
 func Test_Cache_Delete(t *testing.T) {
@@ -678,6 +742,97 @@ func Test_Cache_Stop(t *testing.T) {
 	}
 	cache.Stop()
 	assert.Len(t, cache.stopCh, 1)
+}
+
+func Test_LoaderFunc_Load(t *testing.T) {
+	var called bool
+
+	fn := LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+		called = true
+		return nil
+	})
+
+	assert.Nil(t, fn(nil, ""))
+	assert.True(t, called)
+}
+
+func Test_SuppressedLoader_Load(t *testing.T) {
+	var (
+		mu        sync.Mutex
+		loadCalls int
+		releaseCh = make(chan struct{})
+		res       *Item[string, string]
+	)
+
+	l := SuppressedLoader[string, string]{
+		Loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+			mu.Lock()
+			loadCalls++
+			mu.Unlock()
+
+			<-releaseCh
+
+			if res == nil {
+				return nil
+			}
+
+			res1 := *res
+
+			return &res1
+		}),
+		group: &singleflight.Group{},
+	}
+
+	var (
+		wg           sync.WaitGroup
+		item1, item2 *Item[string, string]
+	)
+
+	cache := prepCache(time.Hour)
+
+	// nil result
+	wg.Add(2)
+
+	go func() {
+		item1 = l.Load(cache, "test")
+		wg.Done()
+	}()
+
+	go func() {
+		item2 = l.Load(cache, "test")
+		wg.Done()
+	}()
+
+	time.Sleep(time.Millisecond * 100) // wait for goroutines to halt
+	releaseCh <- struct{}{}
+
+	wg.Wait()
+	require.Nil(t, item1)
+	require.Nil(t, item2)
+	assert.Equal(t, 1, loadCalls)
+
+	// non nil result
+	res = &Item[string, string]{key: "test"}
+	loadCalls = 0
+	wg.Add(2)
+
+	go func() {
+		item1 = l.Load(cache, "test")
+		wg.Done()
+	}()
+
+	go func() {
+		item2 = l.Load(cache, "test")
+		wg.Done()
+	}()
+
+	time.Sleep(time.Millisecond * 100) // wait for goroutines to halt
+	releaseCh <- struct{}{}
+
+	wg.Wait()
+	require.Same(t, item1, item2)
+	assert.Equal(t, "test", item1.key)
+	assert.Equal(t, 1, loadCalls)
 }
 
 func prepCache(ttl time.Duration, keys ...string) *Cache[string, string] {

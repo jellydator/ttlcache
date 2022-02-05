@@ -44,8 +44,7 @@ type Cache[K comparable, V any] struct {
 		insertFns   []func(*Item[K, V])
 	}
 
-	loader Loader
-
+	loader Loader[K, V]
 	stopCh chan struct{}
 
 	capacity   uint64
@@ -55,8 +54,7 @@ type Cache[K comparable, V any] struct {
 // New creates a new instance of cache.
 func New[K comparable, V any]() *Cache[K, V] {
 	c := &Cache[K, V]{
-		loaderGroup: &singleflight.Group{},
-		stopCh:      make(chan struct{}),
+		stopCh: make(chan struct{}),
 	}
 	c.items.values = make(map[K]*list.Element)
 	c.items.lru = list.New()
@@ -256,37 +254,23 @@ func (c *Cache[K, V]) Get(key K) *Item[K, V] {
 	elem := c.get(key, true)
 	c.items.mu.Unlock()
 
-	if elem != nil {
+	if elem == nil {
 		c.metricsMu.Lock()
-		c.metrics.Hits++
+		c.metrics.Misses++
 		c.metricsMu.Unlock()
 
-		return elem.Value.(*Item[K, V])
-	}
+		if c.loader != nil {
+			return c.loader.Load(c, key)
+		}
 
-	c.metricsMu.Lock()
-	c.metrics.Misses++
-	c.metricsMu.Unlock()
-
-	if c.loader == nil {
 		return nil
 	}
 
-	c.items.mu.Lock()
-	defer c.items.mu.Unlock()
+	c.metricsMu.Lock()
+	c.metrics.Hits++
+	c.metricsMu.Unlock()
 
-	// we don't want to extend expiration if the item is found
-	elem := c.items.values[key]
-	if elem == nil {
-		val, ttl, ok := c.loader.Load(key)
-		if !ok {
-			return nil
-		}
-
-		return c.set(key, val, ttl)
-	}
-
-	return elem.(*Item[K, V])
+	return elem.Value.(*Item[K, V])
 }
 
 // Delete deletes an item from the cache. If the item associated with
@@ -449,36 +433,39 @@ func (c *Cache[K, V]) Stop() {
 
 // Loader is an interface that handles missing data loading.
 type Loader[K comparable, V any] interface {
-	// Load should return a value and its TTL by the provided key.
-	// The bool return value should indicate whether the value
-	// and TTL are valid or not (true == valid).
-	Load(key K) (V, time.Duration, bool)
+	// Load should execute a custom item retrieval logic and
+	// return the item that is associated with the key.
+	// It should return nil if the item is not found/valid.
+	// The method is allowed to fetch data from the cache instance
+	// or update it for future use.
+	Load(c *Cache[K, V], key K) *Item[K, V]
 }
 
 // LoaderFunc type is an adapter that allows the use of ordinary
 // functions as data loaders.
-type LoaderFunc[K comparable, V any] func(K) (V, time.Duration, bool)
+type LoaderFunc[K comparable, V any] func(*Cache[K, V], K) *Item[K, V]
 
-// Load returns a value and its TTL by the provided key.
-// The bool return value indicates whether the value
-// and TTL are valid or not (true == valid).
-func (l LoaderFunc[K, V]) Load(key K) (V, time.Duration, bool) {
-	return l(key)
+// Load executes a custom item retrieval logic and returns the item that
+// is associated with the key.
+// It returns nil if the item is not found/valid.
+func (l LoaderFunc[K, V]) Load(c *Cache[K, V], key K) *Item[K, V] {
+	return l(c, key)
 }
 
-// SyncLoader wraps another Loader and supresses duplicate
+// SuppressedLoader wraps another Loader and suppresses duplicate
 // calls to its Load method.
-type SyncLoader[K comparable, V any] struct {
+type SuppressedLoader[K comparable, V any] struct {
+	Loader[K, V]
+
 	group *singleflight.Group
-	l     Loader[K, V]
 }
 
-// Load returns a value and its TTL by the provided key.
-// The bool return value indicates whether the value
-// and TTL are valid or not (true == valid).
+// Load executes a custom item retrieval logic and returns the item that
+// is associated with the key.
+// It returns nil if the item is not found/valid.
 // It also ensures that only one execution of the wrapped Loader's Load
 // method is in-flight for a given key at a time.
-func (l *SyncLoader[K, V]) Load(key K) (V, time.Duration, bool) {
+func (l *SuppressedLoader[K, V]) Load(c *Cache[K, V], key K) *Item[K, V] {
 	// there should be a better/generic way to create a
 	// singleflight Group's key. It's possible that a generic
 	// singleflight.Group will be introduced with/in go1.19+
@@ -486,31 +473,19 @@ func (l *SyncLoader[K, V]) Load(key K) (V, time.Duration, bool) {
 
 	// the error can be discarded since the singleflight.Group
 	// itself does not return any of its errors, it returns
-	// the errors that we return ourselves in the func below (all of
-	// them are nil)
-	resInterf, _, _ := l.group.Do(strKey, func() (interface{}, error) {
-		value, ttl, ok := l.l.Load(key)
-		if !ok {
+	// the error that we return ourselves in the func below, which
+	// is also nil
+	res, _, _ := l.group.Do(strKey, func() (interface{}, error) {
+		item := l.Loader.Load(c, key)
+		if item == nil {
 			return nil, nil
 		}
 
-		return &syncLoaderResult{
-			value: value,
-			ttl:   ttl,
-		}, nil
+		return item, nil
 	})
 	if res == nil {
-		var empty V
-		return empty, 0, false
+		return nil
 	}
 
-	res := resInterf.(*syncLoaderResult)
-
-	return res.value, res.ttl, true
-}
-
-// syncLoaderResult is the result type of SyncLoader.
-type syncLoaderResult[V any] struct {
-	value V
-	ttl   time.Duration
+	return res.(*Item[K, V])
 }
