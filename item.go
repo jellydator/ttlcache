@@ -17,8 +17,8 @@ const (
 // Item holds all the information that is associated with a single
 // cache value.
 type Item[K comparable, V any] struct {
-	// mutex needs to be locked only when:
-	// - data fields are read inside accessor methods
+	// the mutex needs to be locked only when:
+	// - data fields are being read inside accessor methods
 	// - data fields are being updated
 	// when data fields are being read in one of the cache's
 	// methods, we can be sure that these fields are not modified in

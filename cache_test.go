@@ -186,8 +186,8 @@ func Test_Cache_set(t *testing.T) {
 			Key:      newKey,
 			TTL:      DefaultTTL,
 			Metrics: Metrics{
-				Inserts:   1,
-				Evictions: 1,
+				Insertions: 1,
+				Evictions:  1,
 			},
 			ExpectFns: true,
 		},
@@ -196,7 +196,7 @@ func Test_Cache_set(t *testing.T) {
 			Key:      newKey,
 			TTL:      DefaultTTL,
 			Metrics: Metrics{
-				Inserts: 1,
+				Insertions: 1,
 			},
 			ExpectFns: true,
 		},
@@ -204,7 +204,7 @@ func Test_Cache_set(t *testing.T) {
 			Key: newKey,
 			TTL: time.Minute,
 			Metrics: Metrics{
-				Inserts: 1,
+				Insertions: 1,
 			},
 			ExpectFns: true,
 		},
@@ -212,7 +212,7 @@ func Test_Cache_set(t *testing.T) {
 			Key: newKey,
 			TTL: NoTTL,
 			Metrics: Metrics{
-				Inserts: 1,
+				Insertions: 1,
 			},
 			ExpectFns: true,
 		},
@@ -220,7 +220,7 @@ func Test_Cache_set(t *testing.T) {
 			Key: newKey,
 			TTL: DefaultTTL,
 			Metrics: Metrics{
-				Inserts: 1,
+				Insertions: 1,
 			},
 			ExpectFns: true,
 		},
@@ -243,23 +243,23 @@ func Test_Cache_set(t *testing.T) {
 			cache := prepCache(time.Hour, evictedKey, existingKey, "test3")
 			cache.capacity = c.Capacity
 			cache.defaultTTL = time.Minute * 20
-			cache.events.insertFns = append(cache.events.insertFns, func(item *Item[string, string]) {
+			cache.events.insertion.fns[1] = func(item *Item[string, string]) {
 				assert.Equal(t, newKey, item.key)
 				insertFnsMu.Lock()
 				insertFnsCalls++
 				insertFnsMu.Unlock()
 				wg.Done()
-			})
-			cache.events.insertFns = append(cache.events.insertFns, cache.events.insertFns[0])
-			cache.events.evictionFns = append(cache.events.evictionFns, func(r EvictionReason, item *Item[string, string]) {
+			}
+			cache.events.insertion.fns[2] = cache.events.insertion.fns[1]
+			cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
 				assert.Equal(t, EvictionReasonCapacityReached, r)
 				assert.Equal(t, evictedKey, item.key)
 				evictionFnsMu.Lock()
 				evictionFnsCalls++
 				evictionFnsMu.Unlock()
 				wg.Done()
-			})
-			cache.events.evictionFns = append(cache.events.evictionFns, cache.events.evictionFns[0])
+			}
+			cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
 
 			if c.ExpectFns {
 				wg.Add(2)
@@ -406,7 +406,7 @@ func Test_Cache_evict(t *testing.T) {
 	)
 
 	cache := prepCache(time.Hour, "1", "2", "3", "4")
-	cache.events.evictionFns = append(cache.events.evictionFns, func(r EvictionReason, item *Item[string, string]) {
+	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
 		assert.Equal(t, EvictionReasonDeleted, r)
 		fnsMu.Lock()
 		switch item.key {
@@ -421,8 +421,8 @@ func Test_Cache_evict(t *testing.T) {
 		}
 		fnsMu.Unlock()
 		wg.Done()
-	})
-	cache.events.evictionFns = append(cache.events.evictionFns, cache.events.evictionFns[0])
+	}
+	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
 
 	// delete only specified
 	wg.Add(4)
@@ -538,14 +538,14 @@ func Test_Cache_Delete(t *testing.T) {
 	)
 
 	cache := prepCache(time.Hour, "1", "2", "3", "4")
-	cache.events.evictionFns = append(cache.events.evictionFns, func(r EvictionReason, item *Item[string, string]) {
+	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
 		assert.Equal(t, EvictionReasonDeleted, r)
 		fnsMu.Lock()
 		fnsCalls++
 		fnsMu.Unlock()
 		wg.Done()
-	})
-	cache.events.evictionFns = append(cache.events.evictionFns, cache.events.evictionFns[0])
+	}
+	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
 
 	// not found
 	cache.Delete("1234")
@@ -573,7 +573,7 @@ func Test_Cache_DeleteAll(t *testing.T) {
 	)
 
 	cache := prepCache(time.Hour, "1", "2", "3", "4")
-	cache.events.evictionFns = append(cache.events.evictionFns, func(r EvictionReason, item *Item[string, string]) {
+	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
 		assert.Equal(t, EvictionReasonDeleted, r)
 		fnsMu.Lock()
 		switch item.key {
@@ -588,8 +588,8 @@ func Test_Cache_DeleteAll(t *testing.T) {
 		}
 		fnsMu.Unlock()
 		wg.Done()
-	})
-	cache.events.evictionFns = append(cache.events.evictionFns, cache.events.evictionFns[0])
+	}
+	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
 
 	wg.Add(8)
 	cache.DeleteAll()
@@ -611,7 +611,7 @@ func Test_Cache_DeleteExpired(t *testing.T) {
 	)
 
 	cache := prepCache(time.Hour)
-	cache.events.evictionFns = append(cache.events.evictionFns, func(r EvictionReason, item *Item[string, string]) {
+	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
 		assert.Equal(t, EvictionReasonExpired, r)
 		fnsMu.Lock()
 		switch item.key {
@@ -622,8 +622,8 @@ func Test_Cache_DeleteExpired(t *testing.T) {
 		}
 		fnsMu.Unlock()
 		wg.Done()
-	})
-	cache.events.evictionFns = append(cache.events.evictionFns, cache.events.evictionFns[0])
+	}
+	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
 
 	// one item
 	addToCache(cache, time.Nanosecond, "5")
@@ -708,7 +708,7 @@ func Test_Cache_Start(t *testing.T) {
 	addToCache(cache, time.Nanosecond, "1")
 	time.Sleep(time.Millisecond) // force expiration
 
-	cache.events.evictionFns = append(cache.events.evictionFns, func(r EvictionReason, _ *Item[string, string]) {
+	cache.events.eviction.fns[1] = func(r EvictionReason, _ *Item[string, string]) {
 		assert.Equal(t, EvictionReasonExpired, r)
 
 		cache.metricsMu.RLock()
@@ -731,7 +731,7 @@ func Test_Cache_Start(t *testing.T) {
 		default:
 			close(cache.stopCh)
 		}
-	})
+	}
 
 	cache.Start()
 }
@@ -742,6 +742,42 @@ func Test_Cache_Stop(t *testing.T) {
 	}
 	cache.Stop()
 	assert.Len(t, cache.stopCh, 1)
+}
+
+func Test_Cache_OnInsertion(t *testing.T) {
+	cache := prepCache(time.Hour)
+	del1 := cache.OnInsertion(func(_ *Item[string, string]) {})
+	del2 := cache.OnInsertion(func(_ *Item[string, string]) {})
+
+	assert.Len(t, cache.events.insertion.fns, 2)
+	assert.Equal(t, uint64(2), cache.events.insertion.nextID)
+
+	del1()
+	assert.Len(t, cache.events.insertion.fns, 1)
+	assert.NotContains(t, cache.events.insertion.fns, uint64(0))
+	assert.Contains(t, cache.events.insertion.fns, uint64(1))
+
+	del2()
+	assert.Empty(t, cache.events.insertion.fns)
+	assert.NotContains(t, cache.events.insertion.fns, uint64(1))
+}
+
+func Test_Cache_OnEviction(t *testing.T) {
+	cache := prepCache(time.Hour)
+	del1 := cache.OnEviction(func(_ EvictionReason, _ *Item[string, string]) {})
+	del2 := cache.OnEviction(func(_ EvictionReason, _ *Item[string, string]) {})
+
+	assert.Len(t, cache.events.eviction.fns, 2)
+	assert.Equal(t, uint64(2), cache.events.eviction.nextID)
+
+	del1()
+	assert.Len(t, cache.events.eviction.fns, 1)
+	assert.NotContains(t, cache.events.eviction.fns, uint64(0))
+	assert.Contains(t, cache.events.eviction.fns, uint64(1))
+
+	del2()
+	assert.Empty(t, cache.events.eviction.fns)
+	assert.NotContains(t, cache.events.eviction.fns, uint64(1))
 }
 
 func Test_LoaderFunc_Load(t *testing.T) {
@@ -841,6 +877,8 @@ func prepCache(ttl time.Duration, keys ...string) *Cache[string, string] {
 	c.items.lru = list.New()
 	c.items.expQueue = newExpirationQueue[string, string]()
 	c.items.timerCh = make(chan time.Duration, 1)
+	c.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[string, string]))
+	c.events.insertion.fns = make(map[uint64]func(*Item[string, string]))
 
 	addToCache(c, ttl, keys...)
 

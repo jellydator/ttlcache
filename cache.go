@@ -40,11 +40,16 @@ type Cache[K comparable, V any] struct {
 	metrics   Metrics
 
 	events struct {
-		evictionFnsMu sync.RWMutex
-		evictionFns   []func(EvictionReason, *Item[K, V])
-
-		insertFnsMu sync.RWMutex
-		insertFns   []func(*Item[K, V])
+		insertion struct {
+			mu     sync.RWMutex
+			nextID uint64
+			fns    map[uint64]func(*Item[K, V])
+		}
+		eviction struct {
+			mu     sync.RWMutex
+			nextID uint64
+			fns    map[uint64]func(EvictionReason, *Item[K, V])
+		}
 	}
 
 	stopCh chan struct{}
@@ -63,6 +68,8 @@ func New[K comparable, V any]() *Cache[K, V] {
 	c.items.lru = list.New()
 	c.items.expQueue = newExpirationQueue[K, V]()
 	c.items.timerCh = make(chan time.Duration, 1) // buffer is important
+	c.events.insertion.fns = make(map[uint64]func(*Item[K, V]))
+	c.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[K, V]))
 
 	return c
 }
@@ -147,14 +154,14 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 	c.updateExpirations(true, elem)
 
 	c.metricsMu.Lock()
-	c.metrics.Inserts++
+	c.metrics.Insertions++
 	c.metricsMu.Unlock()
 
-	c.events.insertFnsMu.RLock()
-	for _, fn := range c.events.insertFns {
+	c.events.insertion.mu.RLock()
+	for _, fn := range c.events.insertion.fns {
 		go fn(item)
 	}
-	c.events.insertFnsMu.RUnlock()
+	c.events.insertion.mu.RUnlock()
 
 	return item
 }
@@ -198,18 +205,18 @@ func (c *Cache[K, V]) evict(reason EvictionReason, elems ...*list.Element) {
 		c.metrics.Evictions += uint64(len(elems))
 		c.metricsMu.Unlock()
 
-		c.events.evictionFnsMu.RLock()
+		c.events.eviction.mu.RLock()
 		for i := range elems {
 			item := elems[i].Value.(*Item[K, V])
 			delete(c.items.values, item.key)
 			c.items.lru.Remove(elems[i])
 			c.items.expQueue.remove(elems[i])
 
-			for _, fn := range c.events.evictionFns {
+			for _, fn := range c.events.eviction.fns {
 				go fn(reason, item)
 			}
 		}
-		c.events.evictionFnsMu.RUnlock()
+		c.events.eviction.mu.RUnlock()
 
 		return
 	}
@@ -218,15 +225,15 @@ func (c *Cache[K, V]) evict(reason EvictionReason, elems ...*list.Element) {
 	c.metrics.Evictions += uint64(len(c.items.values))
 	c.metricsMu.Unlock()
 
-	c.events.evictionFnsMu.RLock()
+	c.events.eviction.mu.RLock()
 	for _, elem := range c.items.values {
 		item := elem.Value.(*Item[K, V])
 
-		for _, fn := range c.events.evictionFns {
+		for _, fn := range c.events.eviction.fns {
 			go fn(reason, item)
 		}
 	}
-	c.events.evictionFnsMu.RUnlock()
+	c.events.eviction.mu.RUnlock()
 
 	c.items.values = make(map[K]*list.Element)
 	c.items.lru.Init()
@@ -425,6 +432,42 @@ func (c *Cache[K, V]) Start() {
 // It blocks until the cleanup process exits.
 func (c *Cache[K, V]) Stop() {
 	c.stopCh <- struct{}{}
+}
+
+// OnInsertion adds the provided function to be executed when
+// a new item is inserted into the cache.
+// It returns a function that may be called to delete
+// the provided function from the list of insertion subscribers.
+func (c *Cache[K, V]) OnInsertion(fn func(*Item[K, V])) func() {
+	c.events.insertion.mu.Lock()
+	id := c.events.insertion.nextID
+	c.events.insertion.fns[id] = fn
+	c.events.insertion.nextID++
+	c.events.insertion.mu.Unlock()
+
+	return func() {
+		c.events.insertion.mu.Lock()
+		delete(c.events.insertion.fns, id)
+		c.events.insertion.mu.Unlock()
+	}
+}
+
+// OnEviction adds the provided function to be executed when
+// an item is evicted/deleted from the cache.
+// It returns a function that may be called to delete
+// the provided function from the list of eviction subscribers.
+func (c *Cache[K, V]) OnEviction(fn func(EvictionReason, *Item[K, V])) func() {
+	c.events.eviction.mu.Lock()
+	id := c.events.eviction.nextID
+	c.events.eviction.fns[id] = fn
+	c.events.eviction.nextID++
+	c.events.eviction.mu.Unlock()
+
+	return func() {
+		c.events.eviction.mu.Lock()
+		delete(c.events.eviction.fns, id)
+		c.events.eviction.mu.Unlock()
+	}
 }
 
 // Loader is an interface that handles missing data loading.
