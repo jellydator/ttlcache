@@ -724,7 +724,7 @@ func Test_Cache_Start(t *testing.T) {
 			cache.items.timerCh <- time.Millisecond
 		case 2:
 			cache.items.mu.Lock()
-			addToCache(cache, time.Second*2, "3")
+			addToCache(cache, time.Second, "3")
 			addToCache(cache, NoTTL, "4")
 			cache.items.mu.Unlock()
 			cache.items.timerCh <- time.Millisecond

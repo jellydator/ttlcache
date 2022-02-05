@@ -9,12 +9,15 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+// Available eviction reasons.
 const (
 	EvictionReasonDeleted EvictionReason = iota + 1
 	EvictionReasonCapacityReached
 	EvictionReasonExpired
 )
 
+// EvictionReason is used to specify why a certain item was
+// evicted/deleted.
 type EvictionReason int
 
 // Cache is a synchronised map of items that are automatically removed
@@ -44,9 +47,9 @@ type Cache[K comparable, V any] struct {
 		insertFns   []func(*Item[K, V])
 	}
 
-	loader Loader[K, V]
 	stopCh chan struct{}
 
+	loader     Loader[K, V]
 	capacity   uint64
 	defaultTTL time.Duration
 }
@@ -125,14 +128,7 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 	if elem != nil {
 		// update/overwrite an existing item
 		item := elem.Value.(*Item[K, V])
-		item.value = value
-		item.ttl = ttl
-
-		// the item may already be expired but not yet
-		// cleaned/removed
-		item.expiresAt = time.Time{}
-
-		item.touch()
+		item.update(value, ttl)
 		c.items.lru.MoveToFront(elem)
 		c.updateExpirations(false, elem)
 
@@ -174,7 +170,7 @@ func (c *Cache[K, V]) get(key K, update bool) *list.Element {
 	}
 
 	item := elem.Value.(*Item[K, V])
-	if item.isExpired() {
+	if item.isExpiredUnsafe() {
 		return nil
 	}
 
@@ -304,7 +300,7 @@ func (c *Cache[K, V]) DeleteExpired() {
 	}
 
 	e := c.items.expQueue[0]
-	for e.Value.(*Item[K, V]).isExpired() {
+	for e.Value.(*Item[K, V]).isExpiredUnsafe() {
 		c.evict(EvictionReasonExpired, e)
 
 		if c.items.expQueue.isEmpty() {
