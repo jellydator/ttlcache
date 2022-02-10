@@ -52,15 +52,12 @@ type Cache[K comparable, V any] struct {
 		}
 	}
 
-	stopCh chan struct{}
-
-	loader     Loader[K, V]
-	capacity   uint64
-	defaultTTL time.Duration
+	stopCh  chan struct{}
+	options options[K, V]
 }
 
 // New creates a new instance of cache.
-func New[K comparable, V any]() *Cache[K, V] {
+func New[K comparable, V any](opts ...Option[K, V]) *Cache[K, V] {
 	c := &Cache[K, V]{
 		stopCh: make(chan struct{}),
 	}
@@ -70,6 +67,8 @@ func New[K comparable, V any]() *Cache[K, V] {
 	c.items.timerCh = make(chan time.Duration, 1) // buffer is important
 	c.events.insertion.fns = make(map[uint64]func(*Item[K, V]))
 	c.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[K, V]))
+
+	applyOptions(&c.options, opts...)
 
 	return c
 }
@@ -128,7 +127,7 @@ func (c *Cache[K, V]) updateExpirations(fresh bool, elem *list.Element) {
 // Not concurrently safe.
 func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 	if ttl == DefaultTTL {
-		ttl = c.defaultTTL
+		ttl = c.options.ttl
 	}
 
 	elem := c.get(key, false)
@@ -142,7 +141,7 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 		return item
 	}
 
-	if c.capacity != 0 && uint64(len(c.items.values)) >= c.capacity {
+	if c.options.capacity != 0 && uint64(len(c.items.values)) >= c.options.capacity {
 		// delete the oldest item
 		c.evict(EvictionReasonCapacityReached, c.items.lru.Back())
 	}
@@ -252,7 +251,13 @@ func (c *Cache[K, V]) Set(key K, value V, ttl time.Duration) *Item[K, V] {
 
 // Get retrieves an item from the cache by the provided key.
 // If the item is not found, a nil value is returned.
-func (c *Cache[K, V]) Get(key K) *Item[K, V] {
+func (c *Cache[K, V]) Get(key K, opts ...Option[K, V]) *Item[K, V] {
+	getOpts := options[K, V]{
+		loader: c.options.loader,
+	}
+
+	applyOptions(&getOpts, opts...)
+
 	c.items.mu.Lock()
 	elem := c.get(key, true)
 	c.items.mu.Unlock()
@@ -262,8 +267,8 @@ func (c *Cache[K, V]) Get(key K) *Item[K, V] {
 		c.metrics.Misses++
 		c.metricsMu.Unlock()
 
-		if c.loader != nil {
-			return c.loader.Load(c, key)
+		if getOpts.loader != nil {
+			return getOpts.loader.Load(c, key)
 		}
 
 		return nil
@@ -393,8 +398,8 @@ func (c *Cache[K, V]) Start() {
 			return d
 		}
 
-		if c.defaultTTL > 0 {
-			return c.defaultTTL
+		if c.options.ttl > 0 {
+			return c.options.ttl
 		}
 
 		return time.Hour

@@ -18,13 +18,20 @@ func TestMain(m *testing.M) {
 }
 
 func Test_New(t *testing.T) {
-	c := New[string, string]()
+	c := New[string, string](
+		WithTTL[string, string](time.Hour),
+		WithCapacity[string, string](1),
+	)
 	require.NotNil(t, c)
 	assert.NotNil(t, c.stopCh)
 	assert.NotNil(t, c.items.values)
 	assert.NotNil(t, c.items.lru)
 	assert.NotNil(t, c.items.expQueue)
 	assert.NotNil(t, c.items.timerCh)
+	assert.NotNil(t, c.events.insertion.fns)
+	assert.NotNil(t, c.events.eviction.fns)
+	assert.Equal(t, time.Hour, c.options.ttl)
+	assert.Equal(t, uint64(1), c.options.capacity)
 }
 
 func Test_Cache_updateExpirations(t *testing.T) {
@@ -241,8 +248,8 @@ func Test_Cache_set(t *testing.T) {
 			)
 
 			cache := prepCache(time.Hour, evictedKey, existingKey, "test3")
-			cache.capacity = c.Capacity
-			cache.defaultTTL = time.Minute * 20
+			cache.options.capacity = c.Capacity
+			cache.options.ttl = time.Minute * 20
 			cache.events.insertion.fns[1] = func(item *Item[string, string]) {
 				assert.Equal(t, newKey, item.key)
 				insertFnsMu.Lock()
@@ -298,8 +305,8 @@ func Test_Cache_set(t *testing.T) {
 
 			switch {
 			case c.TTL == DefaultTTL:
-				assert.Equal(t, cache.defaultTTL, item.ttl)
-				assert.WithinDuration(t, time.Now(), item.expiresAt, cache.defaultTTL)
+				assert.Equal(t, cache.options.ttl, item.ttl)
+				assert.WithinDuration(t, time.Now(), item.expiresAt, cache.options.ttl)
 				assert.Equal(t, c.Key, cache.items.expQueue[0].Value.(*Item[string, string]).key)
 			case c.TTL > DefaultTTL:
 				assert.Equal(t, c.TTL, item.ttl)
@@ -470,10 +477,11 @@ func Test_Cache_Set(t *testing.T) {
 func Test_Cache_Get(t *testing.T) {
 	const notFoundKey, foundKey = "notfound", "test1"
 	cc := map[string]struct {
-		Key     string
-		Loader  Loader[string, string]
-		Metrics Metrics
-		Result  *Item[string, string]
+		Key            string
+		DefaultOptions options[string, string]
+		CallOptions    []Option[string, string]
+		Metrics        Metrics
+		Result         *Item[string, string]
 	}{
 		"Get without loader when item is not found": {
 			Key: notFoundKey,
@@ -481,21 +489,58 @@ func Test_Cache_Get(t *testing.T) {
 				Misses: 1,
 			},
 		},
-		"Get with loader that returns non nil value when item is not found": {
+		"Get with default loader that returns non nil value when item is not found": {
 			Key: notFoundKey,
-			Loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
-				return &Item[string, string]{key: "test"}
-			}),
+			DefaultOptions: options[string, string]{
+				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+					return &Item[string, string]{key: "test"}
+				}),
+			},
 			Metrics: Metrics{
 				Misses: 1,
 			},
 			Result: &Item[string, string]{key: "test"},
 		},
-		"Get with loader that returns nil value when item is not found": {
+		"Get with default loader that returns nil value when item is not found": {
 			Key: notFoundKey,
-			Loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
-				return nil
-			}),
+			DefaultOptions: options[string, string]{
+				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+					return nil
+				}),
+			},
+			Metrics: Metrics{
+				Misses: 1,
+			},
+		},
+		"Get with call loader that returns non nil value when item is not found": {
+			Key: notFoundKey,
+			DefaultOptions: options[string, string]{
+				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+					return &Item[string, string]{key: "test"}
+				}),
+			},
+			CallOptions: []Option[string, string]{
+				WithLoader[string, string](LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+					return &Item[string, string]{key: "hello"}
+				})),
+			},
+			Metrics: Metrics{
+				Misses: 1,
+			},
+			Result: &Item[string, string]{key: "hello"},
+		},
+		"Get with call loader that returns nil value when item is not found": {
+			Key: notFoundKey,
+			DefaultOptions: options[string, string]{
+				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+					return &Item[string, string]{key: "test"}
+				}),
+			},
+			CallOptions: []Option[string, string]{
+				WithLoader[string, string](LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+					return nil
+				})),
+			},
 			Metrics: Metrics{
 				Misses: 1,
 			},
@@ -515,9 +560,9 @@ func Test_Cache_Get(t *testing.T) {
 			t.Parallel()
 
 			cache := prepCache(time.Minute, foundKey, "test2", "test3")
-			cache.loader = c.Loader
+			cache.options = c.DefaultOptions
 
-			res := cache.Get(c.Key)
+			res := cache.Get(c.Key, c.CallOptions...)
 
 			if c.Key == foundKey {
 				c.Result = cache.items.values[foundKey].Value.(*Item[string, string])
@@ -720,7 +765,7 @@ func Test_Cache_Start(t *testing.T) {
 			cache.items.mu.Lock()
 			addToCache(cache, time.Nanosecond, "2")
 			cache.items.mu.Unlock()
-			cache.defaultTTL = time.Hour
+			cache.options.ttl = time.Hour
 			cache.items.timerCh <- time.Millisecond
 		case 2:
 			cache.items.mu.Lock()
@@ -872,7 +917,8 @@ func Test_SuppressedLoader_Load(t *testing.T) {
 }
 
 func prepCache(ttl time.Duration, keys ...string) *Cache[string, string] {
-	c := &Cache[string, string]{defaultTTL: ttl}
+	c := &Cache[string, string]{}
+	c.options.ttl = ttl
 	c.items.values = make(map[string]*list.Element)
 	c.items.lru = list.New()
 	c.items.expQueue = newExpirationQueue[string, string]()
