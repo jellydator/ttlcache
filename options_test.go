@@ -51,3 +51,10 @@ func Test_WithLoader(t *testing.T) {
 	WithLoader[string, string](l).apply(&opts)
 	assert.NotNil(t, opts.loader)
 }
+
+func Test_WithDisableTouchOnHit(t *testing.T) {
+	var opts options[string, string]
+
+	WithDisableTouchOnHit[string, string]().apply(&opts)
+	assert.True(t, opts.disableTouchOnHit)
+}

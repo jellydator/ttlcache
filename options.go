@@ -17,9 +17,10 @@ func (fn optionFunc[K, V]) apply(opts *options[K, V]) {
 
 // options holds all available cache configuration options.
 type options[K comparable, V any] struct {
-	capacity uint64
-	ttl      time.Duration
-	loader   Loader[K, V]
+	capacity          uint64
+	ttl               time.Duration
+	loader            Loader[K, V]
+	disableTouchOnHit bool
 }
 
 // applyOptions applies the provided option values to the option struct.
@@ -51,5 +52,16 @@ func WithTTL[K comparable, V any](ttl time.Duration) Option[K, V] {
 func WithLoader[K comparable, V any](l Loader[K, V]) Option[K, V] {
 	return optionFunc[K, V](func(opts *options[K, V]) {
 		opts.loader = l
+	})
+}
+
+// WithDisableTouchOnHit prevents the cache instance from
+// extending/touching an item's expiration timestamp when it is being
+// retrieved.
+// When passing into Get(), it overrides the default value of the
+// cache.
+func WithDisableTouchOnHit[K comparable, V any]() Option[K, V] {
+	return optionFunc[K, V](func(opts *options[K, V]) {
+		opts.disableTouchOnHit = true
 	})
 }

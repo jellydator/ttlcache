@@ -10,28 +10,26 @@ import (
 
 func BenchmarkCacheSetWithoutTTL(b *testing.B) {
 	cache := ttlcache.NewCache[string, string]()
-	defer cache.Close()
 
 	for n := 0; n < b.N; n++ {
-		cache.Set(fmt.Sprint(n%1000000), "value")
+		cache.Set(fmt.Sprint(n%1000000), "value", ttlcache.NoTTL)
 	}
 }
 
 func BenchmarkCacheSetWithGlobalTTL(b *testing.B) {
-	cache := ttlcache.NewCache[string, string]()
-	defer cache.Close()
+	cache := ttlcache.NewCache[string, string](
+		ttlcache.WithTTL(50 * time.Millisecond),
+	)
 
-	cache.SetTTL(time.Duration(50 * time.Millisecond))
 	for n := 0; n < b.N; n++ {
-		cache.Set(fmt.Sprint(n%1000000), "value")
+		cache.Set(fmt.Sprint(n%1000000), "value", ttlcache.DefaultTTL)
 	}
 }
 
 func BenchmarkCacheSetWithTTL(b *testing.B) {
 	cache := ttlcache.NewCache[string, string]()
-	defer cache.Close()
 
 	for n := 0; n < b.N; n++ {
-		cache.SetWithTTL(fmt.Sprint(n%1000000), "value", time.Duration(50*time.Millisecond))
+		cache.Set(fmt.Sprint(n%1000000), "value", 50*time.Millisecond)
 	}
 }

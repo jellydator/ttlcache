@@ -135,7 +135,6 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 		// update/overwrite an existing item
 		item := elem.Value.(*Item[K, V])
 		item.update(value, ttl)
-		c.items.lru.MoveToFront(elem)
 		c.updateExpirations(false, elem)
 
 		return item
@@ -166,10 +165,10 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 }
 
 // get retrieves an item from the cache and extends its expiration
-// time/modifies its position in the LRU list if 'update' is set to true.
+// time if 'touch' is set to true.
 // It returns nil if the item is not found or is expired.
 // Not concurrently safe.
-func (c *Cache[K, V]) get(key K, update bool) *list.Element {
+func (c *Cache[K, V]) get(key K, touch bool) *list.Element {
 	elem := c.items.values[key]
 	if elem == nil {
 		return nil
@@ -180,16 +179,12 @@ func (c *Cache[K, V]) get(key K, update bool) *list.Element {
 		return nil
 	}
 
-	if !update {
-		return elem
-	}
+	c.items.lru.MoveToFront(elem)
 
-	if item.ttl > 0 {
+	if touch && item.ttl > 0 {
 		item.touch()
 		c.updateExpirations(false, elem)
 	}
-
-	c.items.lru.MoveToFront(elem)
 
 	return elem
 }
@@ -250,16 +245,19 @@ func (c *Cache[K, V]) Set(key K, value V, ttl time.Duration) *Item[K, V] {
 }
 
 // Get retrieves an item from the cache by the provided key.
+// Unless this is disabled, it also extends/touches an item's
+// expiration timestamp on successful retrieval.
 // If the item is not found, a nil value is returned.
 func (c *Cache[K, V]) Get(key K, opts ...Option[K, V]) *Item[K, V] {
 	getOpts := options[K, V]{
-		loader: c.options.loader,
+		loader:            c.options.loader,
+		disableTouchOnHit: c.options.disableTouchOnHit,
 	}
 
 	applyOptions(&getOpts, opts...)
 
 	c.items.mu.Lock()
-	elem := c.get(key, true)
+	elem := c.get(key, !getOpts.disableTouchOnHit)
 	c.items.mu.Unlock()
 
 	if elem == nil {
@@ -324,8 +322,8 @@ func (c *Cache[K, V]) DeleteExpired() {
 	}
 }
 
-// Touch updates an item's expiration time and its LRU position
-// by the provided key.
+// Touch simulates an item's retrieval without actually returning it.
+// Its main purpose is to extend an item's expiration timestamp.
 // If the item is not found, the method is no-op.
 func (c *Cache[K, V]) Touch(key K) {
 	c.items.mu.Lock()
@@ -355,7 +353,7 @@ func (c *Cache[K, V]) Keys() []K {
 }
 
 // Items returns a copy of all items in the cache.
-// It does not update any expiration times or LRU positions.
+// It does not update any expiration timestamps.
 func (c *Cache[K, V]) Items() map[K]*Item[K, V] {
 	c.items.mu.RLock()
 	defer c.items.mu.RUnlock()

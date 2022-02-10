@@ -326,7 +326,7 @@ func Test_Cache_get(t *testing.T) {
 
 	cc := map[string]struct {
 		Key     string
-		Update  bool
+		Touch   bool
 		WithTTL bool
 	}{
 		"Retrieval of non-existent item": {
@@ -338,14 +338,14 @@ func Test_Cache_get(t *testing.T) {
 		"Retrieval of existing item without update": {
 			Key: existingKey,
 		},
-		"Retrieval of existing item with update and non zero TTL": {
+		"Retrieval of existing item with touch and non zero TTL": {
 			Key:     existingKey,
-			Update:  true,
+			Touch:   true,
 			WithTTL: true,
 		},
-		"Retrieval of existing item with update and zero TTL": {
-			Key:    existingKey,
-			Update: true,
+		"Retrieval of existing item with touch and zero TTL": {
+			Key:   existingKey,
+			Touch: true,
 		},
 	}
 
@@ -369,7 +369,7 @@ func Test_Cache_get(t *testing.T) {
 				oldItem.ttl = 0
 			}
 
-			elem := cache.get(c.Key, c.Update)
+			elem := cache.get(c.Key, c.Touch)
 
 			if c.Key == notFoundKey {
 				assert.Nil(t, elem)
@@ -385,7 +385,7 @@ func Test_Cache_get(t *testing.T) {
 			require.NotNil(t, elem)
 			item := elem.Value.(*Item[string, string])
 
-			if c.Update && c.WithTTL {
+			if c.Touch && c.WithTTL {
 				assert.True(t, item.expiresAt.After(oldExpiresAt))
 				assert.NotEqual(t, oldQueueIndex, item.queueIndex)
 			} else {
@@ -393,11 +393,7 @@ func Test_Cache_get(t *testing.T) {
 				assert.Equal(t, oldQueueIndex, item.queueIndex)
 			}
 
-			if c.Update {
-				assert.Equal(t, c.Key, cache.items.lru.Front().Value.(*Item[string, string]).key)
-			} else {
-				assert.NotEqual(t, c.Key, cache.items.lru.Front().Value.(*Item[string, string]).key)
-			}
+			assert.Equal(t, c.Key, cache.items.lru.Front().Value.(*Item[string, string]).key)
 		})
 	}
 }
@@ -545,6 +541,24 @@ func Test_Cache_Get(t *testing.T) {
 				Misses: 1,
 			},
 		},
+		"Get when TTL extension is disabled by default and item is found": {
+			Key: foundKey,
+			DefaultOptions: options[string, string]{
+				disableTouchOnHit: true,
+			},
+			Metrics: Metrics{
+				Hits: 1,
+			},
+		},
+		"Get when TTL extension is disabled and item is found": {
+			Key: foundKey,
+			CallOptions: []Option[string, string]{
+				WithDisableTouchOnHit[string, string](),
+			},
+			Metrics: Metrics{
+				Hits: 1,
+			},
+		},
 		"Get when item is found": {
 			Key: foundKey,
 			Metrics: Metrics{
@@ -560,6 +574,7 @@ func Test_Cache_Get(t *testing.T) {
 			t.Parallel()
 
 			cache := prepCache(time.Minute, foundKey, "test2", "test3")
+			oldExpiresAt := cache.items.values[foundKey].Value.(*Item[string, string]).expiresAt
 			cache.options = c.DefaultOptions
 
 			res := cache.Get(c.Key, c.CallOptions...)
@@ -569,8 +584,21 @@ func Test_Cache_Get(t *testing.T) {
 				assert.Equal(t, foundKey, cache.items.lru.Front().Value.(*Item[string, string]).key)
 			}
 
-			assert.Equal(t, c.Result, res)
 			assert.Equal(t, c.Metrics, cache.metrics)
+
+			if !assert.Equal(t, c.Result, res) || res == nil || res.ttl == 0 {
+				return
+			}
+
+			applyOptions(&c.DefaultOptions, c.CallOptions...)
+
+			if c.DefaultOptions.disableTouchOnHit {
+				assert.Equal(t, oldExpiresAt, res.expiresAt)
+				return
+			}
+
+			assert.True(t, oldExpiresAt.Before(res.expiresAt))
+			assert.WithinDuration(t, time.Now(), res.expiresAt, res.ttl)
 		})
 	}
 }
