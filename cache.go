@@ -17,6 +17,9 @@ type ExpireCallback func(key string, value interface{})
 // ExpireReasonCallback is used as a callback on item expiration with extra information why the item expired.
 type ExpireReasonCallback func(key string, reason EvictionReason, value interface{})
 
+// PurgeCallback is used as a callback when the cache is Purged
+type PurgeCallback func()
+
 // LoaderFunction can be supplied to retrieve an item where a cache miss occurs. Supply an item specific ttl or Duration.Zero
 type LoaderFunction func(key string) (data interface{}, ttl time.Duration, err error)
 
@@ -46,6 +49,7 @@ type Cache struct {
 	expireReasonCallback ExpireReasonCallback
 	checkExpireCallback  CheckExpireCallback
 	newItemCallback      ExpireCallback
+	purgeCallback        PurgeCallback
 	// the queue is used to have an ordered structure to use for expiration and cleanup.
 	priorityQueue          *priorityQueue
 	expirationNotification chan bool
@@ -518,6 +522,11 @@ func (cache *Cache) SetNewItemCallback(callback ExpireCallback) {
 	cache.newItemCallback = callback
 }
 
+// SetPurgeCallback sets a callback that will be called when the cache is purged
+func (cache *Cache) SetPurgeCallback(callback PurgeCallback) {
+	cache.purgeCallback = callback
+}
+
 // SkipTTLExtensionOnHit allows the user to change the cache behaviour. When this flag is set to true it will
 // no longer extend TTL of items when they are retrieved using Get, or when their expiration condition is evaluated
 // using SetCheckExpirationCallback.
@@ -545,6 +554,9 @@ func (cache *Cache) Purge() error {
 	cache.metrics.Evicted += int64(len(cache.items))
 	cache.items = make(map[string]*item)
 	cache.priorityQueue = newPriorityQueue()
+	if cache.purgeCallback != nil {
+		cache.purgeCallback()
+	}
 	return nil
 }
 

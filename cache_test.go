@@ -1059,3 +1059,28 @@ func TestCache_Limit(t *testing.T) {
 		assert.Equal(t, "value", val, "Cache should be set [key90, key99]")
 	}
 }
+
+func TestCache_PurgeWithCallback(t *testing.T) {
+	t.Parallel()
+
+	cache := NewCache()
+	defer cache.Close()
+
+	expirationCalled := false
+	purgeCalled := false
+
+	cache.SetTTL(time.Duration(100 * time.Millisecond))
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		expirationCalled = true
+	})
+	cache.SetPurgeCallback(func() {
+		purgeCalled = true
+	})
+
+	cache.SetWithTTL("key", "value", time.Duration(50*time.Millisecond))
+
+	cache.Purge()
+	assert.Equal(t, 0, cache.Count(), "Cache should be empty")
+	assert.Equal(t, false, expirationCalled, "Expiration callback should not be called")
+	assert.Equal(t, true, purgeCalled, "Purge callback should be called")
+}
