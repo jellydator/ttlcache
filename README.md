@@ -1,151 +1,129 @@
-# TTLCache - an in-memory cache with expiration
+# TTLCache - an in-memory cache with item expiration
 
-[![Documentation](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/github.com/ReneKroon/ttlcache/v2)
-[![Release](https://img.shields.io/github/release/ReneKroon/ttlcache.svg?label=Release)](https://github.com/ReneKroon/ttlcache/releases)
+## Features
+- Simple API.
+- Type parameters.
+- Item expiration and automatic deletion.
+- Automatic expiration time extension on each `Get` call.
+- `Loader` interface that is used to load/lazily initialize missing cache 
+items.
+- Subscription to cache events (insertion and eviction).
+- Metrics.
+- Configurability.
 
-TTLCache is a simple key/value cache in golang with the following functions:
-
-1. Expiration of items based on time, or custom function
-2. Loader function to retrieve missing keys can be provided. Additional `Get` calls on the same key block while fetching is in progress (groupcache style).
-3. Individual expiring time or global expiring time, you can choose
-4. Auto-Extending expiration on `Get` -or- DNS style TTL, see `SkipTTLExtensionOnHit(bool)`
-5. Can trigger callback on key expiration
-6. Cleanup resources by calling `Close()` at end of lifecycle.
-7. Thread-safe with comprehensive testing suite. This code is in production at bol.com on critical systems.
-
-Note (issue #25): by default, due to historic reasons, the TTL will be reset on each cache hit and you need to explicitly configure the cache to use a TTL that will not get extended.
-
-[![Build Status](https://www.travis-ci.com/ReneKroon/ttlcache.svg?branch=master)](https://travis-ci.com/ReneKroon/ttlcache)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ReneKroon/ttlcache)](https://goreportcard.com/report/github.com/ReneKroon/ttlcache)
-[![Coverage Status](https://coveralls.io/repos/github/ReneKroon/ttlcache/badge.svg?branch=master)](https://coveralls.io/github/ReneKroon/ttlcache?branch=master)
-[![GitHub issues](https://img.shields.io/github/issues/ReneKroon/ttlcache.svg)](https://github.com/ReneKroon/ttlcache/issues)
-[![license](https://img.shields.io/github/license/ReneKroon/ttlcache.svg?maxAge=2592000)](https://github.com/ReneKroon/ttlcache/LICENSE)
+## Installation
+```
+go get github.com/jellydator/ttlcache/v3
+```
 
 ## Usage
+The main type of `ttlcache` is `Cache`. It represents a single 
+in-memory data store.
 
-`go get github.com/ReneKroon/ttlcache/v2`
-
-You can copy it as a full standalone demo program. The first snippet is basic usage, where the second exploits more options in the cache.
-
-Basic:
+To create a new instance of `ttlcache.Cache`, the `ttlcache.New()` function 
+should be called:
 ```go
-package main
-
-import (
-	"fmt"
-	"time"
-
-	"github.com/ReneKroon/ttlcache/v2"
-)
-
-var notFound = ttlcache.ErrNotFound
-
 func main() {
-	var cache ttlcache.SimpleCache = ttlcache.NewCache()
-
-	cache.SetTTL(time.Duration(10 * time.Second))
-	cache.Set("MyKey", "MyValue")
-	cache.Set("MyNumber", 1000)
-
-	if val, err := cache.Get("MyKey"); err != notFound {
-		fmt.Printf("Got it: %s\n", val)
-	}
-
-	cache.Remove("MyNumber")
-	cache.Purge()
-	cache.Close()
+	cache := ttlcache.New[string, string]()
 }
 ```
 
-Advanced:
+Note that by default, a new cache instance does not let any of its
+items to expire or be automatically deleted. However, this feature
+can be activated by passing a few additional options into the 
+`ttlcache.New()` function and calling the `cache.Start()` method:
 ```go
-package main
-
-import (
-	"fmt"
-	"time"
-
-	"github.com/ReneKroon/ttlcache/v2"
-)
-
-var (
-	notFound = ttlcache.ErrNotFound
-	isClosed = ttlcache.ErrClosed
-)
-
 func main() {
-	newItemCallback := func(key string, value interface{}) {
-		fmt.Printf("New key(%s) added\n", key)
+	cache := ttlcache.New[string, string](
+		ttlcache.WithTTL[string, string](30 * time.Minute),
+	)
+
+	go cache.Start() // starts automatic expired item deletion
+}
+```
+
+Even though the `cache.Start()` method handles expired item deletion well,
+there may be times when the system that uses `ttlcache` needs to determine 
+when to delete the expired items itself. For example, it may need to 
+delete them only when the resource load is at its lowest (e.g., after 
+midnight, when the number of users/HTTP requests drops). So, in situations 
+like these, instead of calling `cache.Start()`, the system could 
+periodically call `cache.DeleteExpired()`:
+```go
+func main() {
+	cache := ttlcache.New[string, string](
+		ttlcache.WithTTL[string, string](30 * time.Minute),
+	)
+
+	for {
+		time.Sleep(4 * time.Hour)
+		cache.DeleteExpired()
 	}
-	checkExpirationCallback := func(key string, value interface{}) bool {
-		if key == "key1" {
-			// if the key equals "key1", the value
-			// will not be allowed to expire
-			return false
+}
+```
+
+The data stored in `ttlcache.Cache` can be retrieved and updated with 
+`Set`, `Get`, `Delete`, etc. methods:
+```go
+func main() {
+	cache := ttlcache.New[string, string](
+		ttlcache.WithTTL[string, string](30 * time.Minute),
+	)
+
+	// insert data
+	cache.Set("first", "value1", ttlcache.DefaultTTL)
+	cache.Set("second", "value2", ttlcache.NoTTL)
+	cache.Set("third", "value3", ttlcache.DefaultTTL)
+
+	// retrieve data
+	item := cache.Get("first")
+	fmt.Println(item.Value(), item.ExpiresAt())
+
+	// delete data
+	cache.Delete("second")
+	cache.DeleteExpired()
+	cache.DeleteAll()
+}
+```
+
+To subscribe to insertion and eviction events, `cache.OnInsertion()` and 
+`cache.OnEviction()` methods should be used:
+```go
+func main() {
+	cache := ttlcache.New[string, string](
+		ttlcache.WithTTL[string, string](30 * time.Minute),
+		ttlcache.WithCapacity[string, string](300),
+	)
+
+	cache.OnInsertion(func(item *ttlcache.Item[string, string]) {
+		fmt.Println(item.Value(), item.ExpiresAt())
+	})
+	cache.OnEviction(func(reason ttlcache.EvictionReason, item *ttlcache.Item[string, string]) {
+		if reason == ttlcache.EvictionReasonCapacityReached {
+			fmt.Println(item.Key(), item.Value())
 		}
-		// all other values are allowed to expire
-		return true
-	}
+	})
 
-	expirationCallback := func(key string, reason ttlcache.EvictionReason, value interface{}) {
-		fmt.Printf("This key(%s) has expired because of %s\n", key, reason)
-	}
-
-	loaderFunction := func(key string) (data interface{}, ttl time.Duration, err error) {
-		ttl = time.Second * 300
-		data, err = getFromNetwork(key)
-
-		return data, ttl, err
-	}
-
-	cache := ttlcache.NewCache()
-	cache.SetTTL(time.Duration(10 * time.Second))
-	cache.SetExpirationReasonCallback(expirationCallback)
-	cache.SetLoaderFunction(loaderFunction)
-	cache.SetNewItemCallback(newItemCallback)
-	cache.SetCheckExpirationCallback(checkExpirationCallback)
-	cache.SetCacheSizeLimit(2)
-
-	cache.Set("key", "value")
-	cache.SetWithTTL("keyWithTTL", "value", 10*time.Second)
-
-	if value, exists := cache.Get("key"); exists == nil {
-		fmt.Printf("Got value: %v\n", value)
-	}
-	count := cache.Count()
-	if result := cache.Remove("keyNNN"); result == notFound {
-		fmt.Printf("Not found, %d items left\n", count)
-	}
-
-	cache.Set("key6", "value")
-	cache.Set("key7", "value")
-	metrics := cache.GetMetrics()
-	fmt.Printf("Total inserted: %d\n", metrics.Inserted)
-
-	cache.Close()
-
-}
-
-func getFromNetwork(key string) (string, error) {
-	time.Sleep(time.Millisecond * 30)
-	return "value", nil
+	cache.Set("first", "value1", ttlcache.DefaultTTL)
+	cache.DeleteAll()
 }
 ```
 
-### TTLCache - Some design considerations
+To load data when the cache does not have it, a custom or
+existing implementation of `ttlcache.Loader` can be used:
+```go
+func main() {
+	loader := ttlcache.LoaderFunc[string, string](
+		func(c *ttlcache.Cache[string, string], key string) *ttlcache.Item[string, string] {
+			// load from file/make an HTTP request
+			item := c.Set("key from file", "value from file")
+			return item
+		},
+	)
+	cache := ttlcache.New[string, string](
+		ttlcache.WithLoader[string, string](loader),
+	)
 
-1. The complexity of the current cache is already quite high. Therefore not all requests can be implemented in a straight-forward manner.
-2. The locking should be done only in the exported functions and `startExpirationProcessing` of the Cache struct. Else data races can occur or recursive locks are needed, which are both unwanted.
-3. I prefer correct functionality over fast tests. It's ok for new tests to take seconds to proof something.
-
-### Original Project
-
-TTLCache was forked from [wunderlist/ttlcache](https://github.com/wunderlist/ttlcache) to add extra functions not avaiable in the original scope.
-The main differences are:
-
-1. A item can store any kind of object, previously, only strings could be saved
-2. Optionally, you can add callbacks too: check if a value should expire, be notified if a value expires, and be notified when new values are added to the cache
-3. The expiration can be either global or per item
-4. Items can exist without expiration time (time.Zero)
-5. Expirations and callbacks are realtime. Don't have a pooling time to check anymore, now it's done with a heap.
-6. A cache count limiter
+	item := cache.Get("key from file")
+}
+```
