@@ -2,6 +2,7 @@ package ttlcache
 
 import (
 	"container/list"
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -240,10 +241,7 @@ func Test_Cache_set(t *testing.T) {
 			t.Parallel()
 
 			var (
-				wg               sync.WaitGroup
-				insertFnsMu      sync.Mutex
 				insertFnsCalls   int
-				evictionFnsMu    sync.Mutex
 				evictionFnsCalls int
 			)
 
@@ -252,39 +250,24 @@ func Test_Cache_set(t *testing.T) {
 			cache.options.ttl = time.Minute * 20
 			cache.events.insertion.fns[1] = func(item *Item[string, string]) {
 				assert.Equal(t, newKey, item.key)
-				insertFnsMu.Lock()
 				insertFnsCalls++
-				insertFnsMu.Unlock()
-				wg.Done()
 			}
 			cache.events.insertion.fns[2] = cache.events.insertion.fns[1]
 			cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
 				assert.Equal(t, EvictionReasonCapacityReached, r)
 				assert.Equal(t, evictedKey, item.key)
-				evictionFnsMu.Lock()
 				evictionFnsCalls++
-				evictionFnsMu.Unlock()
-				wg.Done()
 			}
 			cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
 
-			if c.ExpectFns {
-				wg.Add(2)
-			}
-
 			total := 3
-			if c.Key == newKey {
-				if c.Capacity > 0 && c.Capacity < 4 {
-					wg.Add(2)
-				} else {
-					total++
-				}
+			if c.Key == newKey && (c.Capacity == 0 || c.Capacity >= 4) {
+				total++
 			}
 
 			item := cache.set(c.Key, "value123", c.TTL)
 
 			if c.ExpectFns {
-				wg.Wait()
 				assert.Equal(t, 2, insertFnsCalls)
 
 				if c.Capacity > 0 && c.Capacity < 4 {
@@ -400,8 +383,6 @@ func Test_Cache_get(t *testing.T) {
 
 func Test_Cache_evict(t *testing.T) {
 	var (
-		wg           sync.WaitGroup
-		fnsMu        sync.Mutex
 		key1FnsCalls int
 		key2FnsCalls int
 		key3FnsCalls int
@@ -411,7 +392,6 @@ func Test_Cache_evict(t *testing.T) {
 	cache := prepCache(time.Hour, "1", "2", "3", "4")
 	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
 		assert.Equal(t, EvictionReasonDeleted, r)
-		fnsMu.Lock()
 		switch item.key {
 		case "1":
 			key1FnsCalls++
@@ -422,15 +402,11 @@ func Test_Cache_evict(t *testing.T) {
 		case "4":
 			key4FnsCalls++
 		}
-		fnsMu.Unlock()
-		wg.Done()
 	}
 	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
 
 	// delete only specified
-	wg.Add(4)
 	cache.evict(EvictionReasonDeleted, cache.items.lru.Back(), cache.items.lru.Back().Prev())
-	wg.Wait()
 
 	assert.Equal(t, 2, key1FnsCalls)
 	assert.Equal(t, 2, key2FnsCalls)
@@ -445,9 +421,7 @@ func Test_Cache_evict(t *testing.T) {
 	key1FnsCalls, key2FnsCalls = 0, 0
 	cache.metrics.Evictions = 0
 
-	wg.Add(4)
 	cache.evict(EvictionReasonDeleted)
-	wg.Wait()
 
 	assert.Zero(t, key1FnsCalls)
 	assert.Zero(t, key2FnsCalls)
@@ -604,19 +578,12 @@ func Test_Cache_Get(t *testing.T) {
 }
 
 func Test_Cache_Delete(t *testing.T) {
-	var (
-		wg       sync.WaitGroup
-		fnsMu    sync.Mutex
-		fnsCalls int
-	)
+	var fnsCalls int
 
 	cache := prepCache(time.Hour, "1", "2", "3", "4")
 	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
 		assert.Equal(t, EvictionReasonDeleted, r)
-		fnsMu.Lock()
 		fnsCalls++
-		fnsMu.Unlock()
-		wg.Done()
 	}
 	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
 
@@ -626,10 +593,7 @@ func Test_Cache_Delete(t *testing.T) {
 	assert.Len(t, cache.items.values, 4)
 
 	// success
-	wg.Add(2)
 	cache.Delete("1")
-	wg.Wait()
-
 	assert.Equal(t, 2, fnsCalls)
 	assert.Len(t, cache.items.values, 3)
 	assert.NotContains(t, cache.items.values, "1")
@@ -637,8 +601,6 @@ func Test_Cache_Delete(t *testing.T) {
 
 func Test_Cache_DeleteAll(t *testing.T) {
 	var (
-		wg           sync.WaitGroup
-		fnsMu        sync.Mutex
 		key1FnsCalls int
 		key2FnsCalls int
 		key3FnsCalls int
@@ -648,7 +610,6 @@ func Test_Cache_DeleteAll(t *testing.T) {
 	cache := prepCache(time.Hour, "1", "2", "3", "4")
 	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
 		assert.Equal(t, EvictionReasonDeleted, r)
-		fnsMu.Lock()
 		switch item.key {
 		case "1":
 			key1FnsCalls++
@@ -659,15 +620,10 @@ func Test_Cache_DeleteAll(t *testing.T) {
 		case "4":
 			key4FnsCalls++
 		}
-		fnsMu.Unlock()
-		wg.Done()
 	}
 	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
 
-	wg.Add(8)
 	cache.DeleteAll()
-	wg.Wait()
-
 	assert.Empty(t, cache.items.values)
 	assert.Equal(t, 2, key1FnsCalls)
 	assert.Equal(t, 2, key2FnsCalls)
@@ -677,8 +633,6 @@ func Test_Cache_DeleteAll(t *testing.T) {
 
 func Test_Cache_DeleteExpired(t *testing.T) {
 	var (
-		wg           sync.WaitGroup
-		fnsMu        sync.Mutex
 		key1FnsCalls int
 		key2FnsCalls int
 	)
@@ -686,25 +640,19 @@ func Test_Cache_DeleteExpired(t *testing.T) {
 	cache := prepCache(time.Hour)
 	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
 		assert.Equal(t, EvictionReasonExpired, r)
-		fnsMu.Lock()
 		switch item.key {
 		case "5":
 			key1FnsCalls++
 		case "6":
 			key2FnsCalls++
 		}
-		fnsMu.Unlock()
-		wg.Done()
 	}
 	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
 
 	// one item
 	addToCache(cache, time.Nanosecond, "5")
 
-	wg.Add(2)
 	cache.DeleteExpired()
-	wg.Wait()
-
 	assert.Empty(t, cache.items.values)
 	assert.NotContains(t, cache.items.values, "5")
 	assert.Equal(t, 2, key1FnsCalls)
@@ -721,10 +669,7 @@ func Test_Cache_DeleteExpired(t *testing.T) {
 	addToCache(cache, time.Nanosecond, "6") // we need multiple calls to avoid adding time.Minute to ttl
 	time.Sleep(time.Millisecond)            // force expiration
 
-	wg.Add(4)
 	cache.DeleteExpired()
-	wg.Wait()
-
 	assert.Len(t, cache.items.values, 4)
 	assert.NotContains(t, cache.items.values, "5")
 	assert.NotContains(t, cache.items.values, "6")
@@ -781,30 +726,33 @@ func Test_Cache_Start(t *testing.T) {
 	addToCache(cache, time.Nanosecond, "1")
 	time.Sleep(time.Millisecond) // force expiration
 
-	cache.events.eviction.fns[1] = func(r EvictionReason, _ *Item[string, string]) {
-		assert.Equal(t, EvictionReasonExpired, r)
+	fn := func(r EvictionReason, _ *Item[string, string]) {
+		go func() {
+			assert.Equal(t, EvictionReasonExpired, r)
 
-		cache.metricsMu.RLock()
-		v := cache.metrics.Evictions
-		cache.metricsMu.RUnlock()
+			cache.metricsMu.RLock()
+			v := cache.metrics.Evictions
+			cache.metricsMu.RUnlock()
 
-		switch v {
-		case 1:
-			cache.items.mu.Lock()
-			addToCache(cache, time.Nanosecond, "2")
-			cache.items.mu.Unlock()
-			cache.options.ttl = time.Hour
-			cache.items.timerCh <- time.Millisecond
-		case 2:
-			cache.items.mu.Lock()
-			addToCache(cache, time.Second, "3")
-			addToCache(cache, NoTTL, "4")
-			cache.items.mu.Unlock()
-			cache.items.timerCh <- time.Millisecond
-		default:
-			close(cache.stopCh)
-		}
+			switch v {
+			case 1:
+				cache.items.mu.Lock()
+				addToCache(cache, time.Nanosecond, "2")
+				cache.items.mu.Unlock()
+				cache.options.ttl = time.Hour
+				cache.items.timerCh <- time.Millisecond
+			case 2:
+				cache.items.mu.Lock()
+				addToCache(cache, time.Second, "3")
+				addToCache(cache, NoTTL, "4")
+				cache.items.mu.Unlock()
+				cache.items.timerCh <- time.Millisecond
+			default:
+				close(cache.stopCh)
+			}
+		}()
 	}
+	cache.events.eviction.fns[1] = fn
 
 	cache.Start()
 }
@@ -818,37 +766,169 @@ func Test_Cache_Stop(t *testing.T) {
 }
 
 func Test_Cache_OnInsertion(t *testing.T) {
+	checkCh := make(chan struct{})
+	resCh := make(chan struct{})
 	cache := prepCache(time.Hour)
-	del1 := cache.OnInsertion(func(_ *Item[string, string]) {})
-	del2 := cache.OnInsertion(func(_ *Item[string, string]) {})
+	del1 := cache.OnInsertion(func(_ context.Context, _ *Item[string, string]) {
+		checkCh <- struct{}{}
+	})
+	del2 := cache.OnInsertion(func(_ context.Context, _ *Item[string, string]) {
+		checkCh <- struct{}{}
+	})
 
-	assert.Len(t, cache.events.insertion.fns, 2)
+	require.Len(t, cache.events.insertion.fns, 2)
 	assert.Equal(t, uint64(2), cache.events.insertion.nextID)
 
-	del1()
-	assert.Len(t, cache.events.insertion.fns, 1)
+	cache.events.insertion.fns[0](nil)
+
+	go func() {
+		del1()
+		resCh <- struct{}{}
+	}()
+	assert.Never(t, func() bool {
+		select {
+		case <-resCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*200, time.Millisecond*100)
+	assert.Eventually(t, func() bool {
+		select {
+		case <-checkCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*500, time.Millisecond*250)
+	assert.Eventually(t, func() bool {
+		select {
+		case <-resCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*500, time.Millisecond*250)
+
+	require.Len(t, cache.events.insertion.fns, 1)
 	assert.NotContains(t, cache.events.insertion.fns, uint64(0))
 	assert.Contains(t, cache.events.insertion.fns, uint64(1))
 
-	del2()
+	cache.events.insertion.fns[1](nil)
+
+	go func() {
+		del2()
+		resCh <- struct{}{}
+	}()
+	assert.Never(t, func() bool {
+		select {
+		case <-resCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*200, time.Millisecond*100)
+	assert.Eventually(t, func() bool {
+		select {
+		case <-checkCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*500, time.Millisecond*250)
+	assert.Eventually(t, func() bool {
+		select {
+		case <-resCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*500, time.Millisecond*250)
+
 	assert.Empty(t, cache.events.insertion.fns)
 	assert.NotContains(t, cache.events.insertion.fns, uint64(1))
 }
 
 func Test_Cache_OnEviction(t *testing.T) {
+	checkCh := make(chan struct{})
+	resCh := make(chan struct{})
 	cache := prepCache(time.Hour)
-	del1 := cache.OnEviction(func(_ EvictionReason, _ *Item[string, string]) {})
-	del2 := cache.OnEviction(func(_ EvictionReason, _ *Item[string, string]) {})
+	del1 := cache.OnEviction(func(_ context.Context, _ EvictionReason, _ *Item[string, string]) {
+		checkCh <- struct{}{}
+	})
+	del2 := cache.OnEviction(func(_ context.Context, _ EvictionReason, _ *Item[string, string]) {
+		checkCh <- struct{}{}
+	})
 
-	assert.Len(t, cache.events.eviction.fns, 2)
+	require.Len(t, cache.events.eviction.fns, 2)
 	assert.Equal(t, uint64(2), cache.events.eviction.nextID)
 
-	del1()
-	assert.Len(t, cache.events.eviction.fns, 1)
+	cache.events.eviction.fns[0](0, nil)
+
+	go func() {
+		del1()
+		resCh <- struct{}{}
+	}()
+	assert.Never(t, func() bool {
+		select {
+		case <-resCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*200, time.Millisecond*100)
+	assert.Eventually(t, func() bool {
+		select {
+		case <-checkCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*500, time.Millisecond*250)
+	assert.Eventually(t, func() bool {
+		select {
+		case <-resCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*500, time.Millisecond*250)
+
+	require.Len(t, cache.events.eviction.fns, 1)
 	assert.NotContains(t, cache.events.eviction.fns, uint64(0))
 	assert.Contains(t, cache.events.eviction.fns, uint64(1))
 
-	del2()
+	cache.events.eviction.fns[1](0, nil)
+
+	go func() {
+		del2()
+		resCh <- struct{}{}
+	}()
+	assert.Never(t, func() bool {
+		select {
+		case <-resCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*200, time.Millisecond*100)
+	assert.Eventually(t, func() bool {
+		select {
+		case <-checkCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*500, time.Millisecond*250)
+	assert.Eventually(t, func() bool {
+		select {
+		case <-resCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*500, time.Millisecond*250)
+
 	assert.Empty(t, cache.events.eviction.fns)
 	assert.NotContains(t, cache.events.eviction.fns, uint64(1))
 }

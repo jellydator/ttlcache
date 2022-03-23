@@ -2,6 +2,7 @@ package ttlcache
 
 import (
 	"container/list"
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -157,7 +158,7 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 
 	c.events.insertion.mu.RLock()
 	for _, fn := range c.events.insertion.fns {
-		go fn(item)
+		fn(item)
 	}
 	c.events.insertion.mu.RUnlock()
 
@@ -207,7 +208,7 @@ func (c *Cache[K, V]) evict(reason EvictionReason, elems ...*list.Element) {
 			c.items.expQueue.remove(elems[i])
 
 			for _, fn := range c.events.eviction.fns {
-				go fn(reason, item)
+				fn(reason, item)
 			}
 		}
 		c.events.eviction.mu.RUnlock()
@@ -224,7 +225,7 @@ func (c *Cache[K, V]) evict(reason EvictionReason, elems ...*list.Element) {
 		item := elem.Value.(*Item[K, V])
 
 		for _, fn := range c.events.eviction.fns {
-			go fn(reason, item)
+			fn(reason, item)
 		}
 	}
 	c.events.eviction.mu.RUnlock()
@@ -438,38 +439,78 @@ func (c *Cache[K, V]) Stop() {
 }
 
 // OnInsertion adds the provided function to be executed when
-// a new item is inserted into the cache.
-// It returns a function that may be called to delete
-// the provided function from the list of insertion subscribers.
-func (c *Cache[K, V]) OnInsertion(fn func(*Item[K, V])) func() {
+// a new item is inserted into the cache. The function is executed
+// on a separate goroutine and does not block the flow of the cache
+// manager.
+// The returned function may be called to delete the subscription function
+// from the list of insertion subscribers.
+// When the returned function is called, it blocks until all instances of
+// the same subscription function return. A context is used to notify the
+// subscription function when the returned/deletion function is called.
+func (c *Cache[K, V]) OnInsertion(fn func(context.Context, *Item[K, V])) func() {
+	var (
+		wg          sync.WaitGroup
+		ctx, cancel = context.WithCancel(context.Background())
+	)
+
 	c.events.insertion.mu.Lock()
 	id := c.events.insertion.nextID
-	c.events.insertion.fns[id] = fn
+	c.events.insertion.fns[id] = func(item *Item[K, V]) {
+		wg.Add(1)
+		go func() {
+			fn(ctx, item)
+			wg.Done()
+		}()
+	}
 	c.events.insertion.nextID++
 	c.events.insertion.mu.Unlock()
 
 	return func() {
+		cancel()
+
 		c.events.insertion.mu.Lock()
 		delete(c.events.insertion.fns, id)
 		c.events.insertion.mu.Unlock()
+
+		wg.Wait()
 	}
 }
 
 // OnEviction adds the provided function to be executed when
-// an item is evicted/deleted from the cache.
-// It returns a function that may be called to delete
-// the provided function from the list of eviction subscribers.
-func (c *Cache[K, V]) OnEviction(fn func(EvictionReason, *Item[K, V])) func() {
+// an item is evicted/deleted from the cache. The function is executed
+// on a separate goroutine and does not block the flow of the cache
+// manager.
+// The returned function may be called to delete the subscription function
+// from the list of eviction subscribers.
+// When the returned function is called, it blocks until all instances of
+// the same subscription function return. A context is used to notify the
+// subscription function when the returned/deletion function is called.
+func (c *Cache[K, V]) OnEviction(fn func(context.Context, EvictionReason, *Item[K, V])) func() {
+	var (
+		wg          sync.WaitGroup
+		ctx, cancel = context.WithCancel(context.Background())
+	)
+
 	c.events.eviction.mu.Lock()
 	id := c.events.eviction.nextID
-	c.events.eviction.fns[id] = fn
+	c.events.eviction.fns[id] = func(r EvictionReason, item *Item[K, V]) {
+		wg.Add(1)
+		go func() {
+			fn(ctx, r, item)
+			wg.Done()
+		}()
+	}
 	c.events.eviction.nextID++
 	c.events.eviction.mu.Unlock()
 
 	return func() {
+		cancel()
+
 		c.events.eviction.mu.Lock()
 		delete(c.events.eviction.fns, id)
 		c.events.eviction.mu.Unlock()
+
+		wg.Wait()
 	}
 }
 
