@@ -1,26 +1,14 @@
 name: Go
-on:
-  push:
-    branches:
-      - master
-      - v3-dev
-  pull_request:
-    branches: 
-      - master
-      - v3-dev
-
+on: [push, pull_request]
 jobs:
   test:
-    name: Testing
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: ^1.18
-
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: ^1.18
     - name: Checkout code
-      uses: actions/checkout@v2
-
+      uses: actions/checkout@v3
     - name: Run tests
-      run: go test -race -shuffle -failfast -timeout 1m ./...
+      run: go test -race -shuffle -timeout 1m ./...
