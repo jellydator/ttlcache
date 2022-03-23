@@ -1,1061 +1,973 @@
-package ttlcache_test
+package ttlcache
 
 import (
-	"math/rand"
-	"strconv"
-	"sync/atomic"
+	"container/list"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
-	"go.uber.org/goleak"
-
-	"fmt"
-	"sync"
-
-	. "github.com/ReneKroon/ttlcache/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
+	"golang.org/x/sync/singleflight"
 )
 
 func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m)
 }
 
-// The SimpleCache interface enables quick-start.
-func TestCache_SimpleCache(t *testing.T) {
-	t.Parallel()
-	var cache SimpleCache = NewCache()
-
-	cache.SetTTL(time.Second)
-	cache.Set("k", "v")
-	cache.Get("k")
-	cache.Purge()
-	cache.Close()
-
+func Test_New(t *testing.T) {
+	c := New[string, string](
+		WithTTL[string, string](time.Hour),
+		WithCapacity[string, string](1),
+	)
+	require.NotNil(t, c)
+	assert.NotNil(t, c.stopCh)
+	assert.NotNil(t, c.items.values)
+	assert.NotNil(t, c.items.lru)
+	assert.NotNil(t, c.items.expQueue)
+	assert.NotNil(t, c.items.timerCh)
+	assert.NotNil(t, c.events.insertion.fns)
+	assert.NotNil(t, c.events.eviction.fns)
+	assert.Equal(t, time.Hour, c.options.ttl)
+	assert.Equal(t, uint64(1), c.options.capacity)
 }
 
-// Issue 45 : This test was used to test different code paths for best performance.
-func TestCache_GetByLoaderRace(t *testing.T) {
-	t.Skip()
-	t.Parallel()
-	cache := NewCache()
-	cache.SetTTL(time.Microsecond)
-	defer cache.Close()
+func Test_Cache_updateExpirations(t *testing.T) {
+	oldExp, newExp := time.Now().Add(time.Hour), time.Now().Add(time.Minute)
 
-	loaderInvocations := uint64(0)
-	inFlight := uint64(0)
-
-	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
-		atomic.AddUint64(&inFlight, 1)
-		atomic.AddUint64(&loaderInvocations, 1)
-		time.Sleep(time.Microsecond)
-		assert.Equal(t, uint64(1), inFlight)
-		defer atomic.AddUint64(&inFlight, ^uint64(0))
-		return "global", 0, nil
-
-	}
-	cache.SetLoaderFunction(globalLoader)
-
-	for i := 0; i < 1000; i++ {
-		wg := sync.WaitGroup{}
-		for i := 0; i < 1000; i++ {
-			wg.Add(1)
-			go func() {
-				key, _ := cache.Get("test")
-				assert.Equal(t, "global", key)
-				wg.Done()
-
-			}()
-		}
-		wg.Wait()
-		t.Logf("Invocations: %d\n", loaderInvocations)
-		loaderInvocations = 0
-	}
-
-}
-
-// Issue / PR #39: add customer loader function for each Get() #
-// some middleware prefers to define specific context's etc per Get.
-// This is faciliated by supplying a loder function with Get's.
-func TestCache_GetByLoader(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
-	defer cache.Close()
-
-	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
-		return "global", 0, nil
-	}
-	cache.SetLoaderFunction(globalLoader)
-
-	localLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
-		return "local", 0, nil
-	}
-
-	key, _ := cache.Get("test")
-	assert.Equal(t, "global", key)
-
-	cache.Remove("test")
-
-	localKey, _ := cache.GetByLoader("test", localLoader)
-	assert.Equal(t, "local", localKey)
-
-	cache.Remove("test")
-
-	globalKey, _ := cache.GetByLoader("test", globalLoader)
-	assert.Equal(t, "global", globalKey)
-
-	cache.Remove("test")
-
-	defaultKey, _ := cache.GetByLoader("test", nil)
-	assert.Equal(t, "global", defaultKey)
-
-	cache.Remove("test")
-}
-
-func TestCache_GetByLoaderWithTtl(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
-	defer cache.Close()
-
-	globalTtl := time.Duration(time.Minute)
-	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
-		return "global", globalTtl, nil
-	}
-	cache.SetLoaderFunction(globalLoader)
-
-	localTtl := time.Duration(time.Hour)
-	localLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
-		return "local", localTtl, nil
+	cc := map[string]struct {
+		TimerChValue time.Duration
+		Fresh        bool
+		EmptyQueue   bool
+		OldExpiresAt time.Time
+		NewExpiresAt time.Time
+		Result       time.Duration
+	}{
+		"Update with fresh item and zero new and non zero old expiresAt fields": {
+			Fresh:        true,
+			OldExpiresAt: oldExp,
+		},
+		"Update with non fresh item and zero new and non zero old expiresAt fields": {
+			OldExpiresAt: oldExp,
+		},
+		"Update with fresh item and matching new and old expiresAt fields": {
+			Fresh:        true,
+			OldExpiresAt: oldExp,
+			NewExpiresAt: oldExp,
+		},
+		"Update with non fresh item and matching new and old expiresAt fields": {
+			OldExpiresAt: oldExp,
+			NewExpiresAt: oldExp,
+		},
+		"Update with non zero new expiresAt field and empty queue": {
+			Fresh:        true,
+			EmptyQueue:   true,
+			NewExpiresAt: newExp,
+			Result:       time.Until(newExp),
+		},
+		"Update with fresh item and non zero new and zero old expiresAt fields": {
+			Fresh:        true,
+			NewExpiresAt: newExp,
+			Result:       time.Until(newExp),
+		},
+		"Update with non fresh item and non zero new and zero old expiresAt fields": {
+			NewExpiresAt: newExp,
+			Result:       time.Until(newExp),
+		},
+		"Update with fresh item and non zero new and old expiresAt fields": {
+			Fresh:        true,
+			OldExpiresAt: oldExp,
+			NewExpiresAt: newExp,
+			Result:       time.Until(newExp),
+		},
+		"Update with non fresh item and non zero new and old expiresAt fields": {
+			OldExpiresAt: oldExp,
+			NewExpiresAt: newExp,
+			Result:       time.Until(newExp),
+		},
+		"Update with full timerCh (lesser value), fresh item and non zero new and old expiresAt fields": {
+			TimerChValue: time.Second,
+			Fresh:        true,
+			OldExpiresAt: oldExp,
+			NewExpiresAt: newExp,
+			Result:       time.Second,
+		},
+		"Update with full timerCh (lesser value), non fresh item and non zero new and old expiresAt fields": {
+			TimerChValue: time.Second,
+			OldExpiresAt: oldExp,
+			NewExpiresAt: newExp,
+			Result:       time.Second,
+		},
+		"Update with full timerCh (greater value), fresh item and non zero new and old expiresAt fields": {
+			TimerChValue: time.Hour,
+			Fresh:        true,
+			OldExpiresAt: oldExp,
+			NewExpiresAt: newExp,
+			Result:       time.Until(newExp),
+		},
+		"Update with full timerCh (greater value), non fresh item and non zero new and old expiresAt fields": {
+			TimerChValue: time.Hour,
+			OldExpiresAt: oldExp,
+			NewExpiresAt: newExp,
+			Result:       time.Until(newExp),
+		},
 	}
 
-	key, ttl, _ := cache.GetWithTTL("test")
-	assert.Equal(t, "global", key)
-	assert.Equal(t, ttl, globalTtl)
-	cache.Remove("test")
+	for cn, c := range cc {
+		c := c
 
-	localKey, ttl2, _ := cache.GetByLoaderWithTtl("test", localLoader)
-	assert.Equal(t, "local", localKey)
-	assert.Equal(t, ttl2, localTtl)
-	cache.Remove("test")
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
 
-	globalKey, ttl3, _ := cache.GetByLoaderWithTtl("test", globalLoader)
-	assert.Equal(t, "global", globalKey)
-	assert.Equal(t, ttl3, globalTtl)
-	cache.Remove("test")
+			cache := prepCache(time.Hour)
 
-	defaultKey, ttl4, _ := cache.GetByLoaderWithTtl("test", nil)
-	assert.Equal(t, "global", defaultKey)
-	assert.Equal(t, ttl4, globalTtl)
-	cache.Remove("test")
-}
-
-// Issue #38: Feature request: ability to know why an expiry has occurred
-func TestCache_textExpirationReasons(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
-
-	var reason EvictionReason
-	var sync = make(chan struct{})
-	expirationReason := func(key string, evReason EvictionReason, value interface{}) {
-		reason = evReason
-		sync <- struct{}{}
-	}
-	cache.SetExpirationReasonCallback(expirationReason)
-
-	cache.SetTTL(time.Millisecond)
-	cache.Set("one", "one")
-	<-sync
-	assert.Equal(t, Expired, reason)
-
-	cache.SetTTL(time.Hour)
-	cache.SetCacheSizeLimit(1)
-	cache.Set("two", "two")
-	cache.Set("twoB", "twoB")
-	<-sync
-	assert.Equal(t, EvictedSize, reason)
-
-	cache.Remove("twoB")
-	<-sync
-	assert.Equal(t, Removed, reason)
-
-	cache.SetTTL(time.Hour)
-	cache.Set("three", "three")
-	cache.Close()
-	<-sync
-	assert.Equal(t, Closed, reason)
-
-}
-
-func TestCache_TestTouch(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
-	defer cache.Close()
-
-	lock := sync.Mutex{}
-
-	lock.Lock()
-	expired := false
-	lock.Unlock()
-
-	cache.SkipTTLExtensionOnHit(true)
-	cache.SetExpirationCallback(func(key string, value interface{}) {
-		lock.Lock()
-		defer lock.Unlock()
-		expired = true
-	})
-
-	cache.SetWithTTL("key", "data", time.Millisecond*900)
-	<-time.After(time.Millisecond * 500)
-
-	// no Touch
-	//	cache.Touch("key")
-
-	<-time.After(time.Millisecond * 500)
-	lock.Lock()
-	assert.Equal(t, true, expired)
-	lock.Unlock()
-	cache.Remove("key")
-
-	lock.Lock()
-	expired = false
-	lock.Unlock()
-
-	cache.SetWithTTL("key", "data", time.Millisecond*900)
-	<-time.After(time.Millisecond * 500)
-	cache.Touch("key")
-
-	<-time.After(time.Millisecond * 500)
-	lock.Lock()
-	assert.Equal(t, false, expired)
-	lock.Unlock()
-}
-
-// Issue #37: Cache metrics
-func TestCache_TestMetrics(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetTTL(time.Second)
-	cache.Set("myKey", "myData")
-	cache.SetWithTTL("myKey2", "myData", time.Second)
-
-	cache.Get("myKey")
-	cache.Get("myMiss")
-
-	metrics := cache.GetMetrics()
-	assert.Equal(t, int64(2), metrics.Inserted)
-	assert.Equal(t, int64(1), metrics.Misses)
-	assert.Equal(t, int64(2), metrics.Hits)
-	assert.Equal(t, int64(1), metrics.Retrievals)
-	cache.Purge()
-	metrics = cache.GetMetrics()
-	assert.Equal(t, int64(2), metrics.Evicted)
-
-	cache.SetWithTTL("3", "3", time.Nanosecond)
-	cache.SetWithTTL("4", "4", time.Nanosecond)
-	cache.Count()
-	time.Sleep(time.Millisecond * 10)
-
-	metrics = cache.GetMetrics()
-	assert.Equal(t, int64(4), metrics.Evicted)
-
-}
-
-// Issue #31: Test that a single fetch is executed with the loader function
-func TestCache_TestSingleFetch(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
-	defer cache.Close()
-
-	var calls int32
-
-	loader := func(key string) (data interface{}, ttl time.Duration, err error) {
-		time.Sleep(time.Millisecond * 100)
-		atomic.AddInt32(&calls, 1)
-		return "data", 0, nil
-
-	}
-
-	cache.SetLoaderFunction(loader)
-	wg := sync.WaitGroup{}
-
-	for i := 0; i < 1000; i++ {
-		wg.Add(1)
-		go func() {
-			cache.Get("1")
-			wg.Done()
-		}()
-	}
-	wg.Wait()
-
-	assert.Equal(t, int32(1), calls)
-}
-
-// Issue #30: Removal does not use expiration callback.
-func TestCache_TestRemovalTriggersCallback(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
-	defer cache.Close()
-
-	var sync = make(chan struct{})
-	expiration := func(key string, data interface{}) {
-
-		sync <- struct{}{}
-	}
-	cache.SetExpirationCallback(expiration)
-
-	cache.Set("1", "barf")
-	cache.Remove("1")
-
-	<-sync
-}
-
-// Issue #31: loader function
-func TestCache_TestLoaderFunction(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
-
-	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
-		return nil, 0, ErrNotFound
-	})
-
-	_, err := cache.Get("1")
-	assert.Equal(t, ErrNotFound, err)
-
-	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
-		return "1", 0, nil
-	})
-
-	value, found := cache.Get("1")
-	assert.Equal(t, nil, found)
-	assert.Equal(t, "1", value)
-
-	cache.Close()
-
-	value, found = cache.Get("1")
-	assert.Equal(t, ErrClosed, found)
-	assert.Equal(t, nil, value)
-}
-
-// Issue #31: edge case where cache is closed when loader function has completed
-func TestCache_TestLoaderFunctionDuringClose(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
-
-	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
-		cache.Close()
-		return "1", 0, nil
-	})
-
-	value, found := cache.Get("1")
-	assert.Equal(t, ErrClosed, found)
-	assert.Equal(t, nil, value)
-
-	cache.Close()
-
-}
-
-// Cache sometimes returns key not found under parallel access with a loader function
-func TestCache_TestLoaderFunctionParallelKeyAccess(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
-
-	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
-		time.Sleep(time.Millisecond * 300)
-		return "1", 1 * time.Nanosecond, nil
-	})
-
-	wg := sync.WaitGroup{}
-	errCount := uint64(0)
-	for i := 0; i < 200; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			value, found := cache.Get("foo")
-			if value != "1" || found != nil { // Use an atomic to avoid spamming logs
-				atomic.AddUint64(&errCount, 1)
+			if c.TimerChValue > 0 {
+				cache.items.timerCh <- c.TimerChValue
 			}
-		}()
 
+			elem := &list.Element{
+				Value: &Item[string, string]{
+					expiresAt: c.NewExpiresAt,
+				},
+			}
+
+			if !c.EmptyQueue {
+				cache.items.expQueue.push(&list.Element{
+					Value: &Item[string, string]{
+						expiresAt: c.OldExpiresAt,
+					},
+				})
+
+				if !c.Fresh {
+					elem = &list.Element{
+						Value: &Item[string, string]{
+							expiresAt: c.OldExpiresAt,
+						},
+					}
+					cache.items.expQueue.push(elem)
+
+					elem.Value.(*Item[string, string]).expiresAt = c.NewExpiresAt
+				}
+			}
+
+			cache.updateExpirations(c.Fresh, elem)
+
+			var res time.Duration
+
+			select {
+			case res = <-cache.items.timerCh:
+			default:
+			}
+
+			assert.InDelta(t, c.Result, res, float64(time.Second))
+		})
+	}
+}
+
+func Test_Cache_set(t *testing.T) {
+	const newKey, existingKey, evictedKey = "newKey123", "existingKey", "evicted"
+
+	cc := map[string]struct {
+		Capacity  uint64
+		Key       string
+		TTL       time.Duration
+		Metrics   Metrics
+		ExpectFns bool
+	}{
+		"Set with existing key and custom TTL": {
+			Key: existingKey,
+			TTL: time.Minute,
+		},
+		"Set with existing key and NoTTL": {
+			Key: existingKey,
+			TTL: NoTTL,
+		},
+		"Set with existing key and DefaultTTL": {
+			Key: existingKey,
+			TTL: DefaultTTL,
+		},
+		"Set with new key and eviction caused by small capacity": {
+			Capacity: 3,
+			Key:      newKey,
+			TTL:      DefaultTTL,
+			Metrics: Metrics{
+				Insertions: 1,
+				Evictions:  1,
+			},
+			ExpectFns: true,
+		},
+		"Set with new key and no eviction caused by large capacity": {
+			Capacity: 10,
+			Key:      newKey,
+			TTL:      DefaultTTL,
+			Metrics: Metrics{
+				Insertions: 1,
+			},
+			ExpectFns: true,
+		},
+		"Set with new key and custom TTL": {
+			Key: newKey,
+			TTL: time.Minute,
+			Metrics: Metrics{
+				Insertions: 1,
+			},
+			ExpectFns: true,
+		},
+		"Set with new key and NoTTL": {
+			Key: newKey,
+			TTL: NoTTL,
+			Metrics: Metrics{
+				Insertions: 1,
+			},
+			ExpectFns: true,
+		},
+		"Set with new key and DefaultTTL": {
+			Key: newKey,
+			TTL: DefaultTTL,
+			Metrics: Metrics{
+				Insertions: 1,
+			},
+			ExpectFns: true,
+		},
 	}
 
+	for cn, c := range cc {
+		c := c
+
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				wg               sync.WaitGroup
+				insertFnsMu      sync.Mutex
+				insertFnsCalls   int
+				evictionFnsMu    sync.Mutex
+				evictionFnsCalls int
+			)
+
+			cache := prepCache(time.Hour, evictedKey, existingKey, "test3")
+			cache.options.capacity = c.Capacity
+			cache.options.ttl = time.Minute * 20
+			cache.events.insertion.fns[1] = func(item *Item[string, string]) {
+				assert.Equal(t, newKey, item.key)
+				insertFnsMu.Lock()
+				insertFnsCalls++
+				insertFnsMu.Unlock()
+				wg.Done()
+			}
+			cache.events.insertion.fns[2] = cache.events.insertion.fns[1]
+			cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
+				assert.Equal(t, EvictionReasonCapacityReached, r)
+				assert.Equal(t, evictedKey, item.key)
+				evictionFnsMu.Lock()
+				evictionFnsCalls++
+				evictionFnsMu.Unlock()
+				wg.Done()
+			}
+			cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
+
+			if c.ExpectFns {
+				wg.Add(2)
+			}
+
+			total := 3
+			if c.Key == newKey {
+				if c.Capacity > 0 && c.Capacity < 4 {
+					wg.Add(2)
+				} else {
+					total++
+				}
+			}
+
+			item := cache.set(c.Key, "value123", c.TTL)
+
+			if c.ExpectFns {
+				wg.Wait()
+				assert.Equal(t, 2, insertFnsCalls)
+
+				if c.Capacity > 0 && c.Capacity < 4 {
+					assert.Equal(t, 2, evictionFnsCalls)
+				}
+			}
+
+			assert.Same(t, cache.items.values[c.Key].Value.(*Item[string, string]), item)
+			assert.Len(t, cache.items.values, total)
+			assert.Equal(t, c.Key, item.key)
+			assert.Equal(t, "value123", item.value)
+			assert.Equal(t, c.Key, cache.items.lru.Front().Value.(*Item[string, string]).key)
+			assert.Equal(t, c.Metrics, cache.metrics)
+
+			if c.Capacity > 0 && c.Capacity < 4 {
+				assert.NotEqual(t, evictedKey, cache.items.lru.Back().Value.(*Item[string, string]).key)
+			}
+
+			switch {
+			case c.TTL == DefaultTTL:
+				assert.Equal(t, cache.options.ttl, item.ttl)
+				assert.WithinDuration(t, time.Now(), item.expiresAt, cache.options.ttl)
+				assert.Equal(t, c.Key, cache.items.expQueue[0].Value.(*Item[string, string]).key)
+			case c.TTL > DefaultTTL:
+				assert.Equal(t, c.TTL, item.ttl)
+				assert.WithinDuration(t, time.Now(), item.expiresAt, c.TTL)
+				assert.Equal(t, c.Key, cache.items.expQueue[0].Value.(*Item[string, string]).key)
+			default:
+				assert.Equal(t, c.TTL, item.ttl)
+				assert.Zero(t, item.expiresAt)
+				assert.NotEqual(t, c.Key, cache.items.expQueue[0].Value.(*Item[string, string]).key)
+			}
+		})
+	}
+}
+
+func Test_Cache_get(t *testing.T) {
+	const existingKey, notFoundKey, expiredKey = "existing", "notfound", "expired"
+
+	cc := map[string]struct {
+		Key     string
+		Touch   bool
+		WithTTL bool
+	}{
+		"Retrieval of non-existent item": {
+			Key: notFoundKey,
+		},
+		"Retrieval of expired item": {
+			Key: expiredKey,
+		},
+		"Retrieval of existing item without update": {
+			Key: existingKey,
+		},
+		"Retrieval of existing item with touch and non zero TTL": {
+			Key:     existingKey,
+			Touch:   true,
+			WithTTL: true,
+		},
+		"Retrieval of existing item with touch and zero TTL": {
+			Key:   existingKey,
+			Touch: true,
+		},
+	}
+
+	for cn, c := range cc {
+		c := c
+
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			cache := prepCache(time.Hour, existingKey, "test2", "test3")
+			addToCache(cache, time.Nanosecond, expiredKey)
+			time.Sleep(time.Millisecond) // force expiration
+
+			oldItem := cache.items.values[existingKey].Value.(*Item[string, string])
+			oldQueueIndex := oldItem.queueIndex
+			oldExpiresAt := oldItem.expiresAt
+
+			if c.WithTTL {
+				oldItem.ttl = time.Hour * 30
+			} else {
+				oldItem.ttl = 0
+			}
+
+			elem := cache.get(c.Key, c.Touch)
+
+			if c.Key == notFoundKey {
+				assert.Nil(t, elem)
+				return
+			}
+
+			if c.Key == expiredKey {
+				assert.True(t, time.Now().After(cache.items.values[expiredKey].Value.(*Item[string, string]).expiresAt))
+				assert.Nil(t, elem)
+				return
+			}
+
+			require.NotNil(t, elem)
+			item := elem.Value.(*Item[string, string])
+
+			if c.Touch && c.WithTTL {
+				assert.True(t, item.expiresAt.After(oldExpiresAt))
+				assert.NotEqual(t, oldQueueIndex, item.queueIndex)
+			} else {
+				assert.True(t, item.expiresAt.Equal(oldExpiresAt))
+				assert.Equal(t, oldQueueIndex, item.queueIndex)
+			}
+
+			assert.Equal(t, c.Key, cache.items.lru.Front().Value.(*Item[string, string]).key)
+		})
+	}
+}
+
+func Test_Cache_evict(t *testing.T) {
+	var (
+		wg           sync.WaitGroup
+		fnsMu        sync.Mutex
+		key1FnsCalls int
+		key2FnsCalls int
+		key3FnsCalls int
+		key4FnsCalls int
+	)
+
+	cache := prepCache(time.Hour, "1", "2", "3", "4")
+	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
+		assert.Equal(t, EvictionReasonDeleted, r)
+		fnsMu.Lock()
+		switch item.key {
+		case "1":
+			key1FnsCalls++
+		case "2":
+			key2FnsCalls++
+		case "3":
+			key3FnsCalls++
+		case "4":
+			key4FnsCalls++
+		}
+		fnsMu.Unlock()
+		wg.Done()
+	}
+	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
+
+	// delete only specified
+	wg.Add(4)
+	cache.evict(EvictionReasonDeleted, cache.items.lru.Back(), cache.items.lru.Back().Prev())
 	wg.Wait()
 
-	assert.Equalf(t, uint64(0), errCount, "expected 0 errs, got %d", errCount)
+	assert.Equal(t, 2, key1FnsCalls)
+	assert.Equal(t, 2, key2FnsCalls)
+	assert.Zero(t, key3FnsCalls)
+	assert.Zero(t, key4FnsCalls)
+	assert.Len(t, cache.items.values, 2)
+	assert.NotContains(t, cache.items.values, "1")
+	assert.NotContains(t, cache.items.values, "2")
+	assert.Equal(t, uint64(2), cache.metrics.Evictions)
 
-	cache.Close()
+	// delete all
+	key1FnsCalls, key2FnsCalls = 0, 0
+	cache.metrics.Evictions = 0
+
+	wg.Add(4)
+	cache.evict(EvictionReasonDeleted)
+	wg.Wait()
+
+	assert.Zero(t, key1FnsCalls)
+	assert.Zero(t, key2FnsCalls)
+	assert.Equal(t, 2, key3FnsCalls)
+	assert.Equal(t, 2, key4FnsCalls)
+	assert.Empty(t, cache.items.values)
+	assert.NotContains(t, cache.items.values, "3")
+	assert.NotContains(t, cache.items.values, "4")
+	assert.Equal(t, uint64(2), cache.metrics.Evictions)
 }
 
-// Issue #28: call expirationCallback automatically on cache.Close()
-func TestCache_ExpirationOnClose(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
+func Test_Cache_Set(t *testing.T) {
+	cache := prepCache(time.Hour, "test1", "test2", "test3")
+	item := cache.Set("hello", "value123", time.Minute)
+	require.NotNil(t, item)
+	assert.Same(t, item, cache.items.values["hello"].Value)
 
-	success := make(chan struct{})
-	defer close(success)
+	item = cache.Set("test1", "value123", time.Minute)
+	require.NotNil(t, item)
+	assert.Same(t, item, cache.items.values["test1"].Value)
+}
 
-	cache.SetTTL(time.Hour * 100)
-	cache.SetExpirationCallback(func(key string, value interface{}) {
-		t.Logf("%s\t%v", key, value)
-		success <- struct{}{}
+func Test_Cache_Get(t *testing.T) {
+	const notFoundKey, foundKey = "notfound", "test1"
+	cc := map[string]struct {
+		Key            string
+		DefaultOptions options[string, string]
+		CallOptions    []Option[string, string]
+		Metrics        Metrics
+		Result         *Item[string, string]
+	}{
+		"Get without loader when item is not found": {
+			Key: notFoundKey,
+			Metrics: Metrics{
+				Misses: 1,
+			},
+		},
+		"Get with default loader that returns non nil value when item is not found": {
+			Key: notFoundKey,
+			DefaultOptions: options[string, string]{
+				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+					return &Item[string, string]{key: "test"}
+				}),
+			},
+			Metrics: Metrics{
+				Misses: 1,
+			},
+			Result: &Item[string, string]{key: "test"},
+		},
+		"Get with default loader that returns nil value when item is not found": {
+			Key: notFoundKey,
+			DefaultOptions: options[string, string]{
+				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+					return nil
+				}),
+			},
+			Metrics: Metrics{
+				Misses: 1,
+			},
+		},
+		"Get with call loader that returns non nil value when item is not found": {
+			Key: notFoundKey,
+			DefaultOptions: options[string, string]{
+				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+					return &Item[string, string]{key: "test"}
+				}),
+			},
+			CallOptions: []Option[string, string]{
+				WithLoader[string, string](LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+					return &Item[string, string]{key: "hello"}
+				})),
+			},
+			Metrics: Metrics{
+				Misses: 1,
+			},
+			Result: &Item[string, string]{key: "hello"},
+		},
+		"Get with call loader that returns nil value when item is not found": {
+			Key: notFoundKey,
+			DefaultOptions: options[string, string]{
+				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+					return &Item[string, string]{key: "test"}
+				}),
+			},
+			CallOptions: []Option[string, string]{
+				WithLoader[string, string](LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+					return nil
+				})),
+			},
+			Metrics: Metrics{
+				Misses: 1,
+			},
+		},
+		"Get when TTL extension is disabled by default and item is found": {
+			Key: foundKey,
+			DefaultOptions: options[string, string]{
+				disableTouchOnHit: true,
+			},
+			Metrics: Metrics{
+				Hits: 1,
+			},
+		},
+		"Get when TTL extension is disabled and item is found": {
+			Key: foundKey,
+			CallOptions: []Option[string, string]{
+				WithDisableTouchOnHit[string, string](),
+			},
+			Metrics: Metrics{
+				Hits: 1,
+			},
+		},
+		"Get when item is found": {
+			Key: foundKey,
+			Metrics: Metrics{
+				Hits: 1,
+			},
+		},
+	}
+
+	for cn, c := range cc {
+		c := c
+
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			cache := prepCache(time.Minute, foundKey, "test2", "test3")
+			oldExpiresAt := cache.items.values[foundKey].Value.(*Item[string, string]).expiresAt
+			cache.options = c.DefaultOptions
+
+			res := cache.Get(c.Key, c.CallOptions...)
+
+			if c.Key == foundKey {
+				c.Result = cache.items.values[foundKey].Value.(*Item[string, string])
+				assert.Equal(t, foundKey, cache.items.lru.Front().Value.(*Item[string, string]).key)
+			}
+
+			assert.Equal(t, c.Metrics, cache.metrics)
+
+			if !assert.Equal(t, c.Result, res) || res == nil || res.ttl == 0 {
+				return
+			}
+
+			applyOptions(&c.DefaultOptions, c.CallOptions...)
+
+			if c.DefaultOptions.disableTouchOnHit {
+				assert.Equal(t, oldExpiresAt, res.expiresAt)
+				return
+			}
+
+			assert.True(t, oldExpiresAt.Before(res.expiresAt))
+			assert.WithinDuration(t, time.Now(), res.expiresAt, res.ttl)
+		})
+	}
+}
+
+func Test_Cache_Delete(t *testing.T) {
+	var (
+		wg       sync.WaitGroup
+		fnsMu    sync.Mutex
+		fnsCalls int
+	)
+
+	cache := prepCache(time.Hour, "1", "2", "3", "4")
+	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
+		assert.Equal(t, EvictionReasonDeleted, r)
+		fnsMu.Lock()
+		fnsCalls++
+		fnsMu.Unlock()
+		wg.Done()
+	}
+	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
+
+	// not found
+	cache.Delete("1234")
+	assert.Zero(t, fnsCalls)
+	assert.Len(t, cache.items.values, 4)
+
+	// success
+	wg.Add(2)
+	cache.Delete("1")
+	wg.Wait()
+
+	assert.Equal(t, 2, fnsCalls)
+	assert.Len(t, cache.items.values, 3)
+	assert.NotContains(t, cache.items.values, "1")
+}
+
+func Test_Cache_DeleteAll(t *testing.T) {
+	var (
+		wg           sync.WaitGroup
+		fnsMu        sync.Mutex
+		key1FnsCalls int
+		key2FnsCalls int
+		key3FnsCalls int
+		key4FnsCalls int
+	)
+
+	cache := prepCache(time.Hour, "1", "2", "3", "4")
+	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
+		assert.Equal(t, EvictionReasonDeleted, r)
+		fnsMu.Lock()
+		switch item.key {
+		case "1":
+			key1FnsCalls++
+		case "2":
+			key2FnsCalls++
+		case "3":
+			key3FnsCalls++
+		case "4":
+			key4FnsCalls++
+		}
+		fnsMu.Unlock()
+		wg.Done()
+	}
+	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
+
+	wg.Add(8)
+	cache.DeleteAll()
+	wg.Wait()
+
+	assert.Empty(t, cache.items.values)
+	assert.Equal(t, 2, key1FnsCalls)
+	assert.Equal(t, 2, key2FnsCalls)
+	assert.Equal(t, 2, key3FnsCalls)
+	assert.Equal(t, 2, key4FnsCalls)
+}
+
+func Test_Cache_DeleteExpired(t *testing.T) {
+	var (
+		wg           sync.WaitGroup
+		fnsMu        sync.Mutex
+		key1FnsCalls int
+		key2FnsCalls int
+	)
+
+	cache := prepCache(time.Hour)
+	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
+		assert.Equal(t, EvictionReasonExpired, r)
+		fnsMu.Lock()
+		switch item.key {
+		case "5":
+			key1FnsCalls++
+		case "6":
+			key2FnsCalls++
+		}
+		fnsMu.Unlock()
+		wg.Done()
+	}
+	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
+
+	// one item
+	addToCache(cache, time.Nanosecond, "5")
+
+	wg.Add(2)
+	cache.DeleteExpired()
+	wg.Wait()
+
+	assert.Empty(t, cache.items.values)
+	assert.NotContains(t, cache.items.values, "5")
+	assert.Equal(t, 2, key1FnsCalls)
+
+	key1FnsCalls = 0
+
+	// empty
+	cache.DeleteExpired()
+	assert.Empty(t, cache.items.values)
+
+	// non empty
+	addToCache(cache, time.Hour, "1", "2", "3", "4")
+	addToCache(cache, time.Nanosecond, "5")
+	addToCache(cache, time.Nanosecond, "6") // we need multiple calls to avoid adding time.Minute to ttl
+	time.Sleep(time.Millisecond)            // force expiration
+
+	wg.Add(4)
+	cache.DeleteExpired()
+	wg.Wait()
+
+	assert.Len(t, cache.items.values, 4)
+	assert.NotContains(t, cache.items.values, "5")
+	assert.NotContains(t, cache.items.values, "6")
+	assert.Equal(t, 2, key1FnsCalls)
+	assert.Equal(t, 2, key2FnsCalls)
+}
+
+func Test_Cache_Touch(t *testing.T) {
+	cache := prepCache(time.Hour, "1", "2")
+	oldExpiresAt := cache.items.values["1"].Value.(*Item[string, string]).expiresAt
+
+	cache.Touch("1")
+
+	newExpiresAt := cache.items.values["1"].Value.(*Item[string, string]).expiresAt
+	assert.True(t, newExpiresAt.After(oldExpiresAt))
+	assert.Equal(t, "1", cache.items.lru.Front().Value.(*Item[string, string]).key)
+}
+
+func Test_Cache_Len(t *testing.T) {
+	cache := prepCache(time.Hour, "1", "2")
+	assert.Equal(t, 2, cache.Len())
+}
+
+func Test_Cache_Keys(t *testing.T) {
+	cache := prepCache(time.Hour, "1", "2", "3")
+	assert.ElementsMatch(t, []string{"1", "2", "3"}, cache.Keys())
+}
+
+func Test_Cache_Items(t *testing.T) {
+	cache := prepCache(time.Hour, "1", "2", "3")
+	items := cache.Items()
+	require.Len(t, items, 3)
+
+	require.Contains(t, items, "1")
+	assert.Equal(t, "1", items["1"].key)
+	require.Contains(t, items, "2")
+	assert.Equal(t, "2", items["2"].key)
+	require.Contains(t, items, "3")
+	assert.Equal(t, "3", items["3"].key)
+}
+
+func Test_Cache_Metrics(t *testing.T) {
+	cache := Cache[string, string]{
+		metrics: Metrics{Evictions: 10},
+	}
+
+	assert.Equal(t, Metrics{Evictions: 10}, cache.Metrics())
+}
+
+func Test_Cache_Start(t *testing.T) {
+	cache := prepCache(0)
+	cache.stopCh = make(chan struct{})
+
+	addToCache(cache, time.Nanosecond, "1")
+	time.Sleep(time.Millisecond) // force expiration
+
+	cache.events.eviction.fns[1] = func(r EvictionReason, _ *Item[string, string]) {
+		assert.Equal(t, EvictionReasonExpired, r)
+
+		cache.metricsMu.RLock()
+		v := cache.metrics.Evictions
+		cache.metricsMu.RUnlock()
+
+		switch v {
+		case 1:
+			cache.items.mu.Lock()
+			addToCache(cache, time.Nanosecond, "2")
+			cache.items.mu.Unlock()
+			cache.options.ttl = time.Hour
+			cache.items.timerCh <- time.Millisecond
+		case 2:
+			cache.items.mu.Lock()
+			addToCache(cache, time.Second, "3")
+			addToCache(cache, NoTTL, "4")
+			cache.items.mu.Unlock()
+			cache.items.timerCh <- time.Millisecond
+		default:
+			close(cache.stopCh)
+		}
+	}
+
+	cache.Start()
+}
+
+func Test_Cache_Stop(t *testing.T) {
+	cache := Cache[string, string]{
+		stopCh: make(chan struct{}, 1),
+	}
+	cache.Stop()
+	assert.Len(t, cache.stopCh, 1)
+}
+
+func Test_Cache_OnInsertion(t *testing.T) {
+	cache := prepCache(time.Hour)
+	del1 := cache.OnInsertion(func(_ *Item[string, string]) {})
+	del2 := cache.OnInsertion(func(_ *Item[string, string]) {})
+
+	assert.Len(t, cache.events.insertion.fns, 2)
+	assert.Equal(t, uint64(2), cache.events.insertion.nextID)
+
+	del1()
+	assert.Len(t, cache.events.insertion.fns, 1)
+	assert.NotContains(t, cache.events.insertion.fns, uint64(0))
+	assert.Contains(t, cache.events.insertion.fns, uint64(1))
+
+	del2()
+	assert.Empty(t, cache.events.insertion.fns)
+	assert.NotContains(t, cache.events.insertion.fns, uint64(1))
+}
+
+func Test_Cache_OnEviction(t *testing.T) {
+	cache := prepCache(time.Hour)
+	del1 := cache.OnEviction(func(_ EvictionReason, _ *Item[string, string]) {})
+	del2 := cache.OnEviction(func(_ EvictionReason, _ *Item[string, string]) {})
+
+	assert.Len(t, cache.events.eviction.fns, 2)
+	assert.Equal(t, uint64(2), cache.events.eviction.nextID)
+
+	del1()
+	assert.Len(t, cache.events.eviction.fns, 1)
+	assert.NotContains(t, cache.events.eviction.fns, uint64(0))
+	assert.Contains(t, cache.events.eviction.fns, uint64(1))
+
+	del2()
+	assert.Empty(t, cache.events.eviction.fns)
+	assert.NotContains(t, cache.events.eviction.fns, uint64(1))
+}
+
+func Test_LoaderFunc_Load(t *testing.T) {
+	var called bool
+
+	fn := LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+		called = true
+		return nil
 	})
-	cache.Set("1", 1)
-	cache.Set("2", 1)
-	cache.Set("3", 1)
 
-	found := 0
-	cache.Close()
-	wait := time.NewTimer(time.Millisecond * 100)
-	for found != 3 {
-		select {
-		case <-success:
-			found++
-		case <-wait.C:
-			t.Fail()
-		}
-	}
-
+	assert.Nil(t, fn(nil, ""))
+	assert.True(t, called)
 }
 
-// # Issue 29: After Close() the behaviour of Get, Set, Remove is not defined.
+func Test_SuppressedLoader_Load(t *testing.T) {
+	var (
+		mu        sync.Mutex
+		loadCalls int
+		releaseCh = make(chan struct{})
+		res       *Item[string, string]
+	)
 
-func TestCache_ModifyAfterClose(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
+	l := SuppressedLoader[string, string]{
+		Loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+			mu.Lock()
+			loadCalls++
+			mu.Unlock()
 
-	cache.SetTTL(time.Hour * 100)
-	cache.SetExpirationCallback(func(key string, value interface{}) {
-		t.Logf("%s\t%v", key, value)
-	})
-	cache.Set("1", 1)
-	cache.Set("2", 1)
-	cache.Set("3", 1)
+			<-releaseCh
 
-	_, findErr := cache.Get("1")
-	assert.Equal(t, nil, findErr)
-	assert.Equal(t, nil, cache.Set("broken", 1))
-	assert.Equal(t, ErrNotFound, cache.Remove("broken2"))
-	assert.Equal(t, nil, cache.Purge())
-	assert.Equal(t, nil, cache.SetWithTTL("broken", 2, time.Minute))
-	assert.Equal(t, nil, cache.SetTTL(time.Hour))
+			if res == nil {
+				return nil
+			}
 
-	cache.Close()
+			res1 := *res
 
-	_, getErr := cache.Get("broken3")
-	assert.Equal(t, ErrClosed, getErr)
-	assert.Equal(t, ErrClosed, cache.Set("broken", 1))
-	assert.Equal(t, ErrClosed, cache.Remove("broken2"))
-	assert.Equal(t, ErrClosed, cache.Purge())
-	assert.Equal(t, ErrClosed, cache.SetWithTTL("broken", 2, time.Minute))
-	assert.Equal(t, ErrClosed, cache.SetTTL(time.Hour))
-	assert.Equal(t, 0, cache.Count())
-
-}
-
-// Issue #23: Goroutine leak on closing. When adding a close method i would like to see
-// that it can be called in a repeated way without problems.
-func TestCache_MultipleCloseCalls(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
-
-	cache.SetTTL(time.Millisecond * 100)
-
-	cache.SkipTTLExtensionOnHit(false)
-	cache.Set("test", "!")
-	startTime := time.Now()
-	for now := time.Now(); now.Before(startTime.Add(time.Second * 3)); now = time.Now() {
-		if _, err := cache.Get("test"); err != nil {
-			t.Errorf("Item was not found, even though it should not expire.")
-		}
-
+			return &res1
+		}),
+		group: &singleflight.Group{},
 	}
 
-	cache.Close()
-	assert.Equal(t, ErrClosed, cache.Close())
-}
+	var (
+		wg           sync.WaitGroup
+		item1, item2 *Item[string, string]
+	)
 
-// test for Feature request in issue #12
-//
-func TestCache_SkipTtlExtensionOnHit(t *testing.T) {
-	t.Parallel()
+	cache := prepCache(time.Hour)
 
-	cache := NewCache()
-	defer cache.Close()
+	// nil result
+	wg.Add(2)
 
-	cache.SetTTL(time.Millisecond * 100)
-
-	cache.SkipTTLExtensionOnHit(false)
-	cache.Set("test", "!")
-	startTime := time.Now()
-	for now := time.Now(); now.Before(startTime.Add(time.Second * 3)); now = time.Now() {
-		if _, err := cache.Get("test"); err != nil {
-			t.Errorf("Item was not found, even though it should not expire.")
-		}
-
-	}
-
-	cache.SkipTTLExtensionOnHit(true)
-	cache.Set("expireTest", "!")
-	// will loop if item does not expire
-	for _, err := cache.Get("expireTest"); err == nil; _, err = cache.Get("expireTest") {
-	}
-}
-
-func TestCache_ForRacesAcrossGoroutines(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetTTL(time.Minute * 1)
-	cache.SkipTTLExtensionOnHit(false)
-
-	var wgSet sync.WaitGroup
-	var wgGet sync.WaitGroup
-
-	n := 500
-	wgSet.Add(1)
 	go func() {
-		for i := 0; i < n; i++ {
-			wgSet.Add(1)
-
-			go func(i int) {
-				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
-				if i%2 == 0 {
-					cache.Set(fmt.Sprintf("test%d", i/10), false)
-				} else {
-					cache.SetWithTTL(fmt.Sprintf("test%d", i/10), false, time.Second*59)
-				}
-				wgSet.Done()
-			}(i)
-		}
-		wgSet.Done()
+		item1 = l.Load(cache, "test")
+		wg.Done()
 	}()
-	wgGet.Add(1)
+
 	go func() {
-		for i := 0; i < n; i++ {
-			wgGet.Add(1)
-
-			go func(i int) {
-				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
-				cache.Get(fmt.Sprintf("test%d", i/10))
-				wgGet.Done()
-			}(i)
-		}
-		wgGet.Done()
+		item2 = l.Load(cache, "test")
+		wg.Done()
 	}()
 
-	wgGet.Wait()
-	wgSet.Wait()
-}
+	time.Sleep(time.Millisecond * 100) // wait for goroutines to halt
+	releaseCh <- struct{}{}
 
-func TestCache_SkipTtlExtensionOnHit_ForRacesAcrossGoroutines(t *testing.T) {
-	cache := NewCache()
-	defer cache.Close()
+	wg.Wait()
+	require.Nil(t, item1)
+	require.Nil(t, item2)
+	assert.Equal(t, 1, loadCalls)
 
-	cache.SetTTL(time.Minute * 1)
-	cache.SkipTTLExtensionOnHit(true)
+	// non nil result
+	res = &Item[string, string]{key: "test"}
+	loadCalls = 0
+	wg.Add(2)
 
-	var wgSet sync.WaitGroup
-	var wgGet sync.WaitGroup
-
-	n := 500
-	wgSet.Add(1)
 	go func() {
-		for i := 0; i < n; i++ {
-			wgSet.Add(1)
-
-			go func(i int) {
-				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
-				if i%2 == 0 {
-					cache.Set(fmt.Sprintf("test%d", i/10), false)
-				} else {
-					cache.SetWithTTL(fmt.Sprintf("test%d", i/10), false, time.Second*59)
-				}
-				wgSet.Done()
-			}(i)
-		}
-		wgSet.Done()
+		item1 = l.Load(cache, "test")
+		wg.Done()
 	}()
-	wgGet.Add(1)
+
 	go func() {
-		for i := 0; i < n; i++ {
-			wgGet.Add(1)
-
-			go func(i int) {
-				time.Sleep(time.Nanosecond * time.Duration(rand.Int63n(1000000)))
-				cache.Get(fmt.Sprintf("test%d", i/10))
-				wgGet.Done()
-			}(i)
-		}
-		wgGet.Done()
+		item2 = l.Load(cache, "test")
+		wg.Done()
 	}()
 
-	wgGet.Wait()
-	wgSet.Wait()
+	time.Sleep(time.Millisecond * 100) // wait for goroutines to halt
+	releaseCh <- struct{}{}
+
+	wg.Wait()
+	require.Same(t, item1, item2)
+	assert.Equal(t, "test", item1.key)
+	assert.Equal(t, 1, loadCalls)
 }
 
-// test github issue #14
-// Testing expiration callback would continue with the next item in list, even when it exceeds list lengths
-func TestCache_SetCheckExpirationCallback(t *testing.T) {
-	t.Parallel()
+func prepCache(ttl time.Duration, keys ...string) *Cache[string, string] {
+	c := &Cache[string, string]{}
+	c.options.ttl = ttl
+	c.items.values = make(map[string]*list.Element)
+	c.items.lru = list.New()
+	c.items.expQueue = newExpirationQueue[string, string]()
+	c.items.timerCh = make(chan time.Duration, 1)
+	c.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[string, string]))
+	c.events.insertion.fns = make(map[uint64]func(*Item[string, string]))
 
-	iterated := 0
-	ch := make(chan struct{})
+	addToCache(c, ttl, keys...)
 
-	cacheAD := NewCache()
-	defer cacheAD.Close()
-
-	cacheAD.SetTTL(time.Millisecond)
-	cacheAD.SetCheckExpirationCallback(func(key string, value interface{}) bool {
-		v := value.(*int)
-		t.Logf("key=%v, value=%d\n", key, *v)
-		iterated++
-		if iterated == 1 {
-			// this is the breaking test case for issue #14
-			return false
-		}
-		ch <- struct{}{}
-		return true
-	})
-
-	i := 2
-	cacheAD.Set("a", &i)
-
-	<-ch
+	return c
 }
 
-// test github issue #9
-// Due to scheduling the expected TTL of the top entry can become negative (already expired)
-// This is an issue because negative TTL at the item level was interpreted as 'use global TTL'
-// Which is not right when we become negative due to scheduling.
-// This test could use improvement as it's not requiring a lot of time to trigger.
-func TestCache_SetExpirationCallback(t *testing.T) {
-	t.Parallel()
-
-	type A struct {
-	}
-
-	// Setup the TTL cache
-	cache := NewCache()
-	defer cache.Close()
-
-	ch := make(chan struct{}, 1024)
-	cache.SetTTL(time.Second * 1)
-	cache.SetExpirationCallback(func(key string, value interface{}) {
-		t.Logf("This key(%s) has expired\n", key)
-		ch <- struct{}{}
-	})
-	for i := 0; i < 1024; i++ {
-		cache.Set(fmt.Sprintf("item_%d", i), A{})
-		time.Sleep(time.Millisecond * 10)
-		t.Logf("Cache size: %d\n", cache.Count())
-	}
-
-	if cache.Count() > 100 {
-		t.Fatal("Cache should empty entries >1 second old")
-	}
-
-	expired := 0
-	for expired != 1024 {
-		<-ch
-		expired++
-	}
-}
-
-// test github issue #4
-func TestRemovalAndCountDoesNotPanic(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.Set("key", "value")
-	cache.Remove("key")
-	count := cache.Count()
-	t.Logf("cache has %d keys\n", count)
-}
-
-// test github issue #3
-func TestRemovalWithTtlDoesNotPanic(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetExpirationCallback(func(key string, value interface{}) {
-		t.Logf("This key(%s) has expired\n", key)
-	})
-
-	cache.SetWithTTL("keyWithTTL", "value", time.Duration(2*time.Second))
-	cache.Set("key", "value")
-	cache.Remove("key")
-
-	value, err := cache.Get("keyWithTTL")
-	if err == nil {
-		t.Logf("got %s for keyWithTTL\n", value)
-	}
-	count := cache.Count()
-	t.Logf("cache has %d keys\n", count)
-
-	<-time.After(3 * time.Second)
-
-	value, err = cache.Get("keyWithTTL")
-	if err != nil {
-		t.Logf("got %s for keyWithTTL\n", value)
-	} else {
-		t.Logf("keyWithTTL has gone")
-	}
-	count = cache.Count()
-	t.Logf("cache has %d keys\n", count)
-}
-
-func TestCacheIndividualExpirationBiggerThanGlobal(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetTTL(time.Duration(50 * time.Millisecond))
-	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
-	<-time.After(150 * time.Millisecond)
-	data, exists := cache.Get("key")
-	assert.Equal(t, exists, ErrNotFound, "Expected item to not exist")
-	assert.Nil(t, data, "Expected item to be nil")
-}
-
-func TestCacheGlobalExpirationByGlobal(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.Set("key", "value")
-	<-time.After(50 * time.Millisecond)
-	data, exists := cache.Get("key")
-	assert.Equal(t, exists, nil, "Expected item to exist in cache")
-	assert.Equal(t, data.(string), "value", "Expected item to have 'value' in value")
-
-	cache.SetTTL(time.Duration(50 * time.Millisecond))
-	data, exists = cache.Get("key")
-	assert.Equal(t, exists, nil, "Expected item to exist in cache")
-	assert.Equal(t, data.(string), "value", "Expected item to have 'value' in value")
-
-	<-time.After(100 * time.Millisecond)
-	data, exists = cache.Get("key")
-	assert.Equal(t, exists, ErrNotFound, "Expected item to not exist")
-	assert.Nil(t, data, "Expected item to be nil")
-}
-
-func TestCacheGlobalExpiration(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetTTL(time.Duration(100 * time.Millisecond))
-	cache.Set("key_1", "value")
-	cache.Set("key_2", "value")
-	<-time.After(200 * time.Millisecond)
-	assert.Equal(t, 0, cache.Count(), "Cache should be empty")
-
-}
-
-func TestCacheMixedExpirations(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetExpirationCallback(func(key string, value interface{}) {
-		t.Logf("expired: %s", key)
-	})
-	cache.Set("key_1", "value")
-	cache.SetTTL(time.Duration(100 * time.Millisecond))
-	cache.Set("key_2", "value")
-	<-time.After(150 * time.Millisecond)
-	assert.Equal(t, 1, cache.Count(), "Cache should have only 1 item")
-}
-
-func TestCacheIndividualExpiration(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
-	cache.SetWithTTL("key2", "value", time.Duration(100*time.Millisecond))
-	cache.SetWithTTL("key3", "value", time.Duration(100*time.Millisecond))
-	<-time.After(50 * time.Millisecond)
-	assert.Equal(t, cache.Count(), 3, "Should have 3 elements in cache")
-	<-time.After(160 * time.Millisecond)
-	assert.Equal(t, cache.Count(), 0, "Cache should be empty")
-
-	cache.SetWithTTL("key4", "value", time.Duration(50*time.Millisecond))
-	<-time.After(100 * time.Millisecond)
-	<-time.After(100 * time.Millisecond)
-	assert.Equal(t, 0, cache.Count(), "Cache should be empty")
-}
-
-func TestCacheGet(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	data, exists := cache.Get("hello")
-	assert.Equal(t, exists, ErrNotFound, "Expected empty cache to return no data")
-	assert.Nil(t, data, "Expected data to be empty")
-
-	cache.Set("hello", "world")
-	data, exists = cache.Get("hello")
-	assert.NotNil(t, data, "Expected data to be not nil")
-	assert.Equal(t, nil, exists, "Expected data to exist")
-	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
-}
-
-func TestCacheGetKeys(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	keys := cache.GetKeys()
-	assert.Empty(t, keys, "Expected keys to be empty")
-
-	cache.Set("hello", "world")
-	keys = cache.GetKeys()
-	assert.NotEmpty(t, keys, "Expected keys to be not empty")
-	assert.Equal(t, []string{"hello"}, keys, "Expected keys contains 'hello'")
-}
-
-func TestCacheGetItems(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	items := cache.GetItems()
-	assert.Empty(t, items, "Expected items to be empty")
-
-	cache.Set("hello", "world")
-	items = cache.GetItems()
-	assert.NotEmpty(t, items, "Expected items to be not empty")
-	assert.Equal(t, map[string]interface{}{"hello": "world"}, items, "Expected items to {'hello': 'world'}")
-}
-
-func TestCacheGetWithTTL(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	data, ttl, exists := cache.GetWithTTL("hello")
-	assert.Equal(t, exists, ErrNotFound, "Expected empty cache to return no data")
-	assert.Nil(t, data, "Expected data to be empty")
-	assert.Equal(t, int(ttl), 0, "Expected item TTL to be 0")
-
-	cache.Set("hello", "world")
-	data, ttl, exists = cache.GetWithTTL("hello")
-	assert.NotNil(t, data, "Expected data to be not nil")
-	assert.Equal(t, nil, exists, "Expected data to exist")
-	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
-	assert.Equal(t, int(ttl), 0, "Expected item TTL to be 0")
-
-	orgttl := time.Duration(500 * time.Millisecond)
-	cache.SetWithTTL("hello", "world", orgttl)
-	time.Sleep(10 * time.Millisecond)
-	data, ttl, exists = cache.GetWithTTL("hello")
-	assert.NotNil(t, data, "Expected data to be not nil")
-	assert.Equal(t, nil, exists, "Expected data to exist")
-	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
-	assert.Equal(t, ttl, orgttl, "Expected item TTL to be original TTL")
-
-	cache.SkipTTLExtensionOnHit(true)
-	cache.SetWithTTL("hello", "world", orgttl)
-	time.Sleep(10 * time.Millisecond)
-	data, ttl, exists = cache.GetWithTTL("hello")
-	assert.NotNil(t, data, "Expected data to be not nil")
-	assert.Equal(t, nil, exists, "Expected data to exist")
-	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
-	assert.Less(t, ttl, orgttl, "Expected item TTL to be less than the original TTL")
-	assert.NotEqual(t, int(ttl), 0, "Expected item TTL to be not 0")
-}
-
-func TestCache_TestGetWithTTLAndLoaderFunction(t *testing.T) {
-	t.Parallel()
-	cache := NewCache()
-
-	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
-		return nil, 0, ErrNotFound
-	})
-
-	_, ttl, err := cache.GetWithTTL("1")
-	assert.Equal(t, ErrNotFound, err, "Expected error to be ErrNotFound")
-	assert.Equal(t, int(ttl), 0, "Expected item TTL to be 0")
-
-	orgttl := time.Duration(1 * time.Second)
-	cache.SetLoaderFunction(func(key string) (data interface{}, ttl time.Duration, err error) {
-		return "1", orgttl, nil
-	})
-
-	value, ttl, found := cache.GetWithTTL("1")
-	assert.Equal(t, nil, found)
-	assert.Equal(t, "1", value)
-	assert.Equal(t, ttl, orgttl, "Expected item TTL to be the same as the original TTL")
-	cache.Close()
-
-	value, ttl, found = cache.GetWithTTL("1")
-	assert.Equal(t, ErrClosed, found)
-	assert.Equal(t, nil, value)
-	assert.Equal(t, int(ttl), 0, "Expected returned ttl for an ErrClosed err to be 0")
-}
-
-func TestCacheExpirationCallbackFunction(t *testing.T) {
-	t.Parallel()
-
-	expiredCount := 0
-	var lock sync.Mutex
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetTTL(time.Duration(500 * time.Millisecond))
-	cache.SetExpirationCallback(func(key string, value interface{}) {
-		lock.Lock()
-		defer lock.Unlock()
-		expiredCount = expiredCount + 1
-	})
-	cache.SetWithTTL("key", "value", time.Duration(1000*time.Millisecond))
-	cache.Set("key_2", "value")
-	<-time.After(1100 * time.Millisecond)
-
-	lock.Lock()
-	defer lock.Unlock()
-	assert.Equal(t, 2, expiredCount, "Expected 2 items to be expired")
-}
-
-// TestCacheCheckExpirationCallbackFunction should consider that the next entry in the queue
-// needs to be considered for eviction even if the callback returns no eviction for the current item
-func TestCacheCheckExpirationCallbackFunction(t *testing.T) {
-	t.Parallel()
-
-	expiredCount := 0
-	var lock sync.Mutex
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SkipTTLExtensionOnHit(true)
-	cache.SetTTL(time.Duration(50 * time.Millisecond))
-	cache.SetCheckExpirationCallback(func(key string, value interface{}) bool {
-		if key == "key2" || key == "key4" {
-			return true
-		}
-		return false
-	})
-	cache.SetExpirationCallback(func(key string, value interface{}) {
-		lock.Lock()
-		expiredCount = expiredCount + 1
-		lock.Unlock()
-	})
-	cache.Set("key", "value")
-	cache.Set("key3", "value")
-	cache.Set("key2", "value")
-	cache.Set("key4", "value")
-
-	<-time.After(110 * time.Millisecond)
-	lock.Lock()
-	assert.Equal(t, 2, expiredCount, "Expected 2 items to be expired")
-	lock.Unlock()
-}
-
-func TestCacheNewItemCallbackFunction(t *testing.T) {
-	t.Parallel()
-
-	newItemCount := 0
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetTTL(time.Duration(50 * time.Millisecond))
-	cache.SetNewItemCallback(func(key string, value interface{}) {
-		newItemCount = newItemCount + 1
-	})
-	cache.Set("key", "value")
-	cache.Set("key2", "value")
-	cache.Set("key", "value")
-	<-time.After(110 * time.Millisecond)
-	assert.Equal(t, 2, newItemCount, "Expected only 2 new items")
-}
-
-func TestCacheRemove(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetTTL(time.Duration(50 * time.Millisecond))
-	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
-	cache.Set("key_2", "value")
-	<-time.After(70 * time.Millisecond)
-	removeKey := cache.Remove("key")
-	removeKey2 := cache.Remove("key_2")
-	assert.Equal(t, nil, removeKey, "Expected 'key' to be removed from cache")
-	assert.Equal(t, ErrNotFound, removeKey2, "Expected 'key_2' to already be expired from cache")
-}
-
-func TestCacheSetWithTTLExistItem(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetTTL(time.Duration(100 * time.Millisecond))
-	cache.SetWithTTL("key", "value", time.Duration(50*time.Millisecond))
-	<-time.After(30 * time.Millisecond)
-	cache.SetWithTTL("key", "value2", time.Duration(50*time.Millisecond))
-	data, exists := cache.Get("key")
-	assert.Equal(t, nil, exists, "Expected 'key' to exist")
-	assert.Equal(t, "value2", data.(string), "Expected 'data' to have value 'value2'")
-}
-
-func TestCache_Purge(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetTTL(time.Duration(100 * time.Millisecond))
-
-	for i := 0; i < 5; i++ {
-
-		cache.SetWithTTL("key", "value", time.Duration(50*time.Millisecond))
-		<-time.After(30 * time.Millisecond)
-		cache.SetWithTTL("key", "value2", time.Duration(50*time.Millisecond))
-		cache.Get("key")
-
-		cache.Purge()
-		assert.Equal(t, 0, cache.Count(), "Cache should be empty")
-	}
-
-}
-
-func TestCache_Limit(t *testing.T) {
-	t.Parallel()
-
-	cache := NewCache()
-	defer cache.Close()
-
-	cache.SetTTL(time.Duration(100 * time.Second))
-	cache.SetCacheSizeLimit(10)
-
-	for i := 0; i < 100; i++ {
-		cache.Set("key"+strconv.FormatInt(int64(i), 10), "value")
-	}
-	assert.Equal(t, 10, cache.Count(), "Cache should equal to limit")
-	for i := 90; i < 100; i++ {
-		key := "key" + strconv.FormatInt(int64(i), 10)
-		val, _ := cache.Get(key)
-		assert.Equal(t, "value", val, "Cache should be set [key90, key99]")
+func addToCache(c *Cache[string, string], ttl time.Duration, keys ...string) {
+	for i, key := range keys {
+		item := newItem(
+			key,
+			fmt.Sprint("value of", key),
+			ttl+time.Duration(i)*time.Minute,
+		)
+		elem := c.items.lru.PushFront(item)
+		c.items.values[key] = elem
+		c.items.expQueue.push(elem)
 	}
 }
