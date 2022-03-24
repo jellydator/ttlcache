@@ -11,4 +11,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
     - name: Run tests
-      run: go test -race -shuffle on -timeout 1m ./...
+      run: go test -race -shuffle on -timeout 1m -coverprofile=covprofile ./...
+    - name: Send coverage 
+      uses: shogo82148/actions-goveralls@v1
+      with:
+        path-to-profile: covprofile 

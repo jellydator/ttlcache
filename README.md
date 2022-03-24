@@ -1,5 +1,10 @@
 # TTLCache - an in-memory cache with item expiration
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/jellydator/ttlcache/v3.svg)](https://pkg.go.dev/github.com/jellydator/ttlcache/v3)
+[![Build Status](https://github.com/jellydator/ttlcache/actions/workflows/go.yml/badge.svg)](https://github.com/jellydator/ttlcache/actions/workflows/go.yml)
+[![Coverage Status](https://coveralls.io/repos/github/jellydator/ttlcache/badge.svg?branch=master)](https://coveralls.io/github/jellydator/ttlcache?branch=master)
+[![Go Report Card](https://goreportcard.com/badge/github.com/jellydator/ttlcache/v3)](https://goreportcard.com/report/github.com/jellydator/ttlcache/v3)
+
 ## Features
 - Simple API.
 - Type parameters.
