@@ -45,8 +45,8 @@ func Test_WithTTL(t *testing.T) {
 func Test_WithLoader(t *testing.T) {
 	var opts options[string, string]
 
-	l := LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
-		return nil
+	l := LoaderFunc[string, string](func(_ *Cache[string, string], _ string) (*Item[string, string], error) {
+		return nil, nil
 	})
 	WithLoader[string, string](l).apply(&opts)
 	assert.NotNil(t, opts.loader)

@@ -3,6 +3,7 @@ package ttlcache
 import (
 	"container/list"
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -462,8 +463,8 @@ func Test_Cache_Get(t *testing.T) {
 		"Get with default loader that returns non nil value when item is not found": {
 			Key: notFoundKey,
 			DefaultOptions: options[string, string]{
-				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
-					return &Item[string, string]{key: "test"}
+				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) (*Item[string, string], error) {
+					return &Item[string, string]{key: "test"}, nil
 				}),
 			},
 			Metrics: Metrics{
@@ -474,8 +475,8 @@ func Test_Cache_Get(t *testing.T) {
 		"Get with default loader that returns nil value when item is not found": {
 			Key: notFoundKey,
 			DefaultOptions: options[string, string]{
-				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
-					return nil
+				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) (*Item[string, string], error) {
+					return nil, nil
 				}),
 			},
 			Metrics: Metrics{
@@ -485,13 +486,13 @@ func Test_Cache_Get(t *testing.T) {
 		"Get with call loader that returns non nil value when item is not found": {
 			Key: notFoundKey,
 			DefaultOptions: options[string, string]{
-				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
-					return &Item[string, string]{key: "test"}
+				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) (*Item[string, string], error) {
+					return &Item[string, string]{key: "test"}, nil
 				}),
 			},
 			CallOptions: []Option[string, string]{
-				WithLoader[string, string](LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
-					return &Item[string, string]{key: "hello"}
+				WithLoader[string, string](LoaderFunc[string, string](func(_ *Cache[string, string], _ string) (*Item[string, string], error) {
+					return &Item[string, string]{key: "hello"}, nil
 				})),
 			},
 			Metrics: Metrics{
@@ -502,13 +503,13 @@ func Test_Cache_Get(t *testing.T) {
 		"Get with call loader that returns nil value when item is not found": {
 			Key: notFoundKey,
 			DefaultOptions: options[string, string]{
-				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
-					return &Item[string, string]{key: "test"}
+				loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) (*Item[string, string], error) {
+					return &Item[string, string]{key: "test"}, nil
 				}),
 			},
 			CallOptions: []Option[string, string]{
-				WithLoader[string, string](LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
-					return nil
+				WithLoader[string, string](LoaderFunc[string, string](func(_ *Cache[string, string], _ string) (*Item[string, string], error) {
+					return nil, nil
 				})),
 			},
 			Metrics: Metrics{
@@ -551,7 +552,8 @@ func Test_Cache_Get(t *testing.T) {
 			oldExpiresAt := cache.items.values[foundKey].Value.(*Item[string, string]).expiresAt
 			cache.options = c.DefaultOptions
 
-			res := cache.Get(c.Key, c.CallOptions...)
+			res, err := cache.Get(c.Key, c.CallOptions...)
+			assert.NoError(t, err)
 
 			if c.Key == foundKey {
 				c.Result = cache.items.values[foundKey].Value.(*Item[string, string])
@@ -936,12 +938,29 @@ func Test_Cache_OnEviction(t *testing.T) {
 func Test_LoaderFunc_Load(t *testing.T) {
 	var called bool
 
-	fn := LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+	fn := LoaderFunc[string, string](func(_ *Cache[string, string], _ string) (*Item[string, string], error) {
 		called = true
-		return nil
+		return nil, errors.New("test")
 	})
 
-	assert.Nil(t, fn(nil, ""))
+	cache := New(WithLoader[string, string](fn))
+	item, err := cache.Get("test")
+	assert.Nil(t, item)
+	assert.True(t, called)
+	assert.Error(t, err)
+}
+
+func Test_LoaderFunc_LoadError(t *testing.T) {
+	var called bool
+
+	fn := LoaderFunc[string, string](func(_ *Cache[string, string], _ string) (*Item[string, string], error) {
+		called = true
+		return nil, nil
+	})
+
+	item, err := fn(nil, "")
+	assert.NoError(t, err)
+	assert.Nil(t, item)
 	assert.True(t, called)
 }
 
@@ -954,7 +973,7 @@ func Test_SuppressedLoader_Load(t *testing.T) {
 	)
 
 	l := SuppressedLoader[string, string]{
-		Loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+		Loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) (*Item[string, string], error) {
 			mu.Lock()
 			loadCalls++
 			mu.Unlock()
@@ -962,12 +981,12 @@ func Test_SuppressedLoader_Load(t *testing.T) {
 			<-releaseCh
 
 			if res == nil {
-				return nil
+				return nil, nil
 			}
 
 			res1 := *res
 
-			return &res1
+			return &res1, nil
 		}),
 		group: &singleflight.Group{},
 	}
@@ -975,6 +994,7 @@ func Test_SuppressedLoader_Load(t *testing.T) {
 	var (
 		wg           sync.WaitGroup
 		item1, item2 *Item[string, string]
+		err1, err2   error
 	)
 
 	cache := prepCache(time.Hour)
@@ -983,12 +1003,12 @@ func Test_SuppressedLoader_Load(t *testing.T) {
 	wg.Add(2)
 
 	go func() {
-		item1 = l.Load(cache, "test")
+		item1, err1 = l.Load(cache, "test")
 		wg.Done()
 	}()
 
 	go func() {
-		item2 = l.Load(cache, "test")
+		item2, err2 = l.Load(cache, "test")
 		wg.Done()
 	}()
 
@@ -997,7 +1017,9 @@ func Test_SuppressedLoader_Load(t *testing.T) {
 
 	wg.Wait()
 	require.Nil(t, item1)
+	require.NoError(t, err1)
 	require.Nil(t, item2)
+	require.NoError(t, err2)
 	assert.Equal(t, 1, loadCalls)
 
 	// non nil result
@@ -1006,12 +1028,12 @@ func Test_SuppressedLoader_Load(t *testing.T) {
 	wg.Add(2)
 
 	go func() {
-		item1 = l.Load(cache, "test")
+		item1, err1 = l.Load(cache, "test")
 		wg.Done()
 	}()
 
 	go func() {
-		item2 = l.Load(cache, "test")
+		item2, err2 = l.Load(cache, "test")
 		wg.Done()
 	}()
 
@@ -1020,6 +1042,8 @@ func Test_SuppressedLoader_Load(t *testing.T) {
 
 	wg.Wait()
 	require.Same(t, item1, item2)
+	require.NoError(t, err1)
+	require.NoError(t, err2)
 	assert.Equal(t, "test", item1.key)
 	assert.Equal(t, 1, loadCalls)
 }

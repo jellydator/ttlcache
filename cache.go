@@ -249,7 +249,7 @@ func (c *Cache[K, V]) Set(key K, value V, ttl time.Duration) *Item[K, V] {
 // Unless this is disabled, it also extends/touches an item's
 // expiration timestamp on successful retrieval.
 // If the item is not found, a nil value is returned.
-func (c *Cache[K, V]) Get(key K, opts ...Option[K, V]) *Item[K, V] {
+func (c *Cache[K, V]) Get(key K, opts ...Option[K, V]) (*Item[K, V], error) {
 	getOpts := options[K, V]{
 		loader:            c.options.loader,
 		disableTouchOnHit: c.options.disableTouchOnHit,
@@ -270,14 +270,14 @@ func (c *Cache[K, V]) Get(key K, opts ...Option[K, V]) *Item[K, V] {
 			return getOpts.loader.Load(c, key)
 		}
 
-		return nil
+		return nil, nil
 	}
 
 	c.metricsMu.Lock()
 	c.metrics.Hits++
 	c.metricsMu.Unlock()
 
-	return elem.Value.(*Item[K, V])
+	return elem.Value.(*Item[K, V]), nil
 }
 
 // Delete deletes an item from the cache. If the item associated with
@@ -521,17 +521,17 @@ type Loader[K comparable, V any] interface {
 	// It should return nil if the item is not found/valid.
 	// The method is allowed to fetch data from the cache instance
 	// or update it for future use.
-	Load(c *Cache[K, V], key K) *Item[K, V]
+	Load(c *Cache[K, V], key K) (*Item[K, V], error)
 }
 
 // LoaderFunc type is an adapter that allows the use of ordinary
 // functions as data loaders.
-type LoaderFunc[K comparable, V any] func(*Cache[K, V], K) *Item[K, V]
+type LoaderFunc[K comparable, V any] func(*Cache[K, V], K) (*Item[K, V], error)
 
 // Load executes a custom item retrieval logic and returns the item that
 // is associated with the key.
 // It returns nil if the item is not found/valid.
-func (l LoaderFunc[K, V]) Load(c *Cache[K, V], key K) *Item[K, V] {
+func (l LoaderFunc[K, V]) Load(c *Cache[K, V], key K) (*Item[K, V], error) {
 	return l(c, key)
 }
 
@@ -548,7 +548,7 @@ type SuppressedLoader[K comparable, V any] struct {
 // It returns nil if the item is not found/valid.
 // It also ensures that only one execution of the wrapped Loader's Load
 // method is in-flight for a given key at a time.
-func (l *SuppressedLoader[K, V]) Load(c *Cache[K, V], key K) *Item[K, V] {
+func (l *SuppressedLoader[K, V]) Load(c *Cache[K, V], key K) (*Item[K, V], error) {
 	// there should be a better/generic way to create a
 	// singleflight Group's key. It's possible that a generic
 	// singleflight.Group will be introduced with/in go1.19+
@@ -558,17 +558,17 @@ func (l *SuppressedLoader[K, V]) Load(c *Cache[K, V], key K) *Item[K, V] {
 	// itself does not return any of its errors, it returns
 	// the error that we return ourselves in the func below, which
 	// is also nil
-	res, _, _ := l.group.Do(strKey, func() (interface{}, error) {
-		item := l.Loader.Load(c, key)
-		if item == nil {
-			return nil, nil
+	res, err, _ := l.group.Do(strKey, func() (interface{}, error) {
+		item, err := l.Loader.Load(c, key)
+		if item == nil || err != nil {
+			return nil, err
 		}
 
 		return item, nil
 	})
-	if res == nil {
-		return nil
+	if res == nil || err != nil {
+		return nil, nil
 	}
 
-	return res.(*Item[K, V])
+	return res.(*Item[K, V]), nil
 }
