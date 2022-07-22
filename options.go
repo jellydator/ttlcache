@@ -17,10 +17,11 @@ func (fn optionFunc[K, V]) apply(opts *options[K, V]) {
 
 // options holds all available cache configuration options.
 type options[K comparable, V any] struct {
-	capacity          uint64
-	ttl               time.Duration
-	loader            Loader[K, V]
-	disableTouchOnHit bool
+	capacity              uint64
+	ttl                   time.Duration
+	loader                Loader[K, V]
+	disableTouchOnHit     bool
+	disableOverwriteOnSet bool
 }
 
 // applyOptions applies the provided option values to the option struct.
@@ -63,5 +64,16 @@ func WithLoader[K comparable, V any](l Loader[K, V]) Option[K, V] {
 func WithDisableTouchOnHit[K comparable, V any]() Option[K, V] {
 	return optionFunc[K, V](func(opts *options[K, V]) {
 		opts.disableTouchOnHit = true
+	})
+}
+
+// WithDisableOverwriteOnSet prevents the cache instance from
+// overwriting an item when setting the value. This effectively makes
+// the cache a first-insert wins
+// When passing into Get(), it overrides the default value of the
+// cache.
+func WithDisableOverwriteOnSet[K comparable, V any]() Option[K, V] {
+	return optionFunc[K, V](func(opts *options[K, V]) {
+		opts.disableOverwriteOnSet = true
 	})
 }

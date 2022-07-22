@@ -444,6 +444,18 @@ func Test_Cache_Set(t *testing.T) {
 	assert.Same(t, item, cache.items.values["test1"].Value)
 }
 
+func Test_Cache_Set_disableOverwriteOnSet(t *testing.T) {
+	cache := prepCache(time.Hour, "test1", "test2", "test3")
+	cache.options.disableOverwriteOnSet = true
+	item := cache.Set("hello", "value123", time.Minute)
+	require.NotNil(t, item)
+	assert.Same(t, item, cache.items.values["hello"].Value)
+
+	item2 := cache.Set("hello", "value345", time.Minute)
+	require.NotNil(t, item2)
+	assert.Same(t, item2, cache.items.values["hello"].Value)
+}
+
 func Test_Cache_Get(t *testing.T) {
 	const notFoundKey, foundKey = "notfound", "test1"
 	cc := map[string]struct {

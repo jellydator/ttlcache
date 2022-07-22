@@ -132,6 +132,10 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 	}
 
 	elem := c.get(key, false)
+	// return existing item if overwrite is disabled
+	if elem != nil && c.options.disableOverwriteOnSet {
+		return elem.Value.(*Item[K, V])
+	}
 	if elem != nil {
 		// update/overwrite an existing item
 		item := elem.Value.(*Item[K, V])

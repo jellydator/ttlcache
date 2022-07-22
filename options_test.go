@@ -58,3 +58,10 @@ func Test_WithDisableTouchOnHit(t *testing.T) {
 	WithDisableTouchOnHit[string, string]().apply(&opts)
 	assert.True(t, opts.disableTouchOnHit)
 }
+
+func Test_WithDisableOverwriteOnSet(t *testing.T) {
+	var opts options[string, string]
+
+	WithDisableOverwriteOnSet[string, string]().apply(&opts)
+	assert.True(t, opts.disableOverwriteOnSet)
+}
