@@ -76,7 +76,7 @@ func New[K comparable, V any](opts ...Option[K, V]) *Cache[K, V] {
 
 // updateExpirations updates the expiration queue and notifies
 // the cache auto cleaner if needed.
-// Not concurrently safe.
+// Not concurrency safe.
 func (c *Cache[K, V]) updateExpirations(fresh bool, elem *list.Element) {
 	var oldExpiresAt time.Time
 
@@ -125,7 +125,7 @@ func (c *Cache[K, V]) updateExpirations(fresh bool, elem *list.Element) {
 }
 
 // set creates a new item, adds it to the cache and then returns it.
-// Not concurrently safe.
+// Not concurrency safe.
 func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 	if ttl == DefaultTTL {
 		ttl = c.options.ttl
@@ -134,6 +134,8 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 	elem := c.get(key, false)
 	// return existing item if overwrite is disabled
 	if elem != nil && c.options.disableOverwriteOnSet {
+		c.updateExpirations(false, elem)
+
 		return elem.Value.(*Item[K, V])
 	}
 	if elem != nil {
@@ -172,7 +174,7 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 // get retrieves an item from the cache and extends its expiration
 // time if 'touch' is set to true.
 // It returns nil if the item is not found or is expired.
-// Not concurrently safe.
+// Not concurrency safe.
 func (c *Cache[K, V]) get(key K, touch bool) *list.Element {
 	elem := c.items.values[key]
 	if elem == nil {
@@ -197,7 +199,7 @@ func (c *Cache[K, V]) get(key K, touch bool) *list.Element {
 // evict deletes items from the cache.
 // If no items are provided, all currently present cache items
 // are evicted.
-// Not concurrently safe.
+// Not concurrency safe.
 func (c *Cache[K, V]) evict(reason EvictionReason, elems ...*list.Element) {
 	if len(elems) > 0 {
 		c.metricsMu.Lock()
@@ -241,7 +243,9 @@ func (c *Cache[K, V]) evict(reason EvictionReason, elems ...*list.Element) {
 
 // Set creates a new item from the provided key and value, adds
 // it to the cache and then returns it. If an item associated with the
-// provided key already exists, the new item overwrites the existing one.
+// provided key already exists, the new item overwrites the existing one
+// unless you opt to use the option `options.disableOverwriteOnSet` which will
+// prevent overwrites
 func (c *Cache[K, V]) Set(key K, value V, ttl time.Duration) *Item[K, V] {
 	c.items.mu.Lock()
 	defer c.items.mu.Unlock()
