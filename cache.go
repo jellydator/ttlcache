@@ -4,6 +4,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/LopatkinEvgeniy/clock"
+
 	"golang.org/x/sync/singleflight"
 )
 
@@ -58,6 +60,7 @@ type Cache struct {
 	loaderFunction   LoaderFunction
 	sizeLimit        int
 	metrics          Metrics
+	clock            clock.Clock
 }
 
 // EvictionReason is an enum that explains why an item was evicted
@@ -118,13 +121,13 @@ func (cache *Cache) getItem(key string) (*item, bool, bool) {
 }
 
 func (cache *Cache) startExpirationProcessing() {
-	timer := time.NewTimer(time.Hour)
+	timer := cache.clock.NewTimer(time.Hour)
 	for {
 		var sleepTime time.Duration
 		cache.mutex.Lock()
 		cache.hasNotified = false
 		if cache.priorityQueue.Len() > 0 {
-			sleepTime = time.Until(cache.priorityQueue.root().expireAt)
+			sleepTime = cache.clock.Until(cache.priorityQueue.root().expireAt)
 			if sleepTime < 0 && cache.priorityQueue.root().expireAt.IsZero() {
 				sleepTime = time.Hour
 			} else if sleepTime < 0 {
@@ -140,7 +143,7 @@ func (cache *Cache) startExpirationProcessing() {
 			sleepTime = time.Hour
 		}
 
-		cache.expirationTime = time.Now().Add(sleepTime)
+		cache.expirationTime = cache.clock.Now().Add(sleepTime)
 		cache.mutex.Unlock()
 
 		timer.Reset(sleepTime)
@@ -154,7 +157,7 @@ func (cache *Cache) startExpirationProcessing() {
 			cache.mutex.Unlock()
 			shutdownFeedback <- struct{}{}
 			return
-		case <-timer.C:
+		case <-timer.Chan():
 			timer.Stop()
 			cache.mutex.Lock()
 			if cache.priorityQueue.Len() == 0 {
@@ -269,7 +272,7 @@ func (cache *Cache) SetWithTTL(key string, data interface{}, ttl time.Duration) 
 		if cache.sizeLimit != 0 && len(cache.items) >= cache.sizeLimit {
 			cache.removeItem(cache.priorityQueue.items[0], EvictedSize)
 		}
-		item = newItem(key, data, ttl)
+		item = newItem(key, data, ttl, cache.clock)
 		cache.items[key] = item
 	}
 	cache.metrics.Inserted++
@@ -338,7 +341,7 @@ func (cache *Cache) GetByLoaderWithTtl(key string, customLoaderFunction LoaderFu
 		if !cache.skipTTLExtension {
 			ttlToReturn = item.ttl
 		} else {
-			ttlToReturn = time.Until(item.expireAt)
+			ttlToReturn = cache.clock.Until(item.expireAt)
 		}
 		if ttlToReturn < 0 {
 			ttlToReturn = 0
@@ -559,6 +562,11 @@ func (cache *Cache) SetCacheSizeLimit(limit int) {
 
 // NewCache is a helper to create instance of the Cache struct
 func NewCache() *Cache {
+	return NewClockCache(clock.NewRealClock())
+}
+
+// NewClockCache allows to specify which clock is use: mock or real.
+func NewClockCache(c clock.Clock) *Cache {
 
 	shutdownChan := make(chan chan struct{})
 
@@ -567,12 +575,13 @@ func NewCache() *Cache {
 		loaderLock:             &singleflight.Group{},
 		priorityQueue:          newPriorityQueue(),
 		expirationNotification: make(chan bool, 1),
-		expirationTime:         time.Now(),
+		expirationTime:         c.Now(),
 		shutdownSignal:         shutdownChan,
 		isShutDown:             false,
 		loaderFunction:         nil,
 		sizeLimit:              0,
 		metrics:                Metrics{},
+		clock:                  c,
 	}
 	go cache.startExpirationProcessing()
 	return cache

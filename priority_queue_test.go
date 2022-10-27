@@ -5,13 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LopatkinEvgeniy/clock"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestPriorityQueuePush(t *testing.T) {
 	queue := newPriorityQueue()
 	for i := 0; i < 10; i++ {
-		queue.push(newItem(fmt.Sprintf("key_%d", i), "data", -1))
+		queue.push(newItem(fmt.Sprintf("key_%d", i), "data", -1, clock.NewRealClock()))
 	}
 	assert.Equal(t, queue.Len(), 10, "Expected queue to have 10 elements")
 }
@@ -19,7 +20,7 @@ func TestPriorityQueuePush(t *testing.T) {
 func TestPriorityQueuePop(t *testing.T) {
 	queue := newPriorityQueue()
 	for i := 0; i < 10; i++ {
-		queue.push(newItem(fmt.Sprintf("key_%d", i), "data", -1))
+		queue.push(newItem(fmt.Sprintf("key_%d", i), "data", -1, clock.NewRealClock()))
 	}
 	for i := 0; i < 5; i++ {
 		item := queue.pop()
@@ -39,7 +40,7 @@ func TestPriorityQueuePop(t *testing.T) {
 func TestPriorityQueueCheckOrder(t *testing.T) {
 	queue := newPriorityQueue()
 	for i := 10; i > 0; i-- {
-		queue.push(newItem(fmt.Sprintf("key_%d", i), "data", time.Duration(i)*time.Second))
+		queue.push(newItem(fmt.Sprintf("key_%d", i), "data", time.Duration(i)*time.Second, clock.NewRealClock()))
 	}
 	for i := 1; i <= 10; i++ {
 		item := queue.pop()
@@ -53,7 +54,7 @@ func TestPriorityQueueRemove(t *testing.T) {
 	var itemRemove *item
 	for i := 0; i < 5; i++ {
 		key := fmt.Sprintf("key_%d", i)
-		items[key] = newItem(key, "data", time.Duration(i)*time.Second)
+		items[key] = newItem(key, "data", time.Duration(i)*time.Second, clock.NewRealClock())
 		queue.push(items[key])
 
 		if i == 2 {
@@ -77,7 +78,7 @@ func TestPriorityQueueRemove(t *testing.T) {
 
 func TestPriorityQueueUpdate(t *testing.T) {
 	queue := newPriorityQueue()
-	item := newItem("key", "data", 1*time.Second)
+	item := newItem("key", "data", 1*time.Second, clock.NewRealClock())
 	queue.push(item)
 	assert.Equal(t, queue.Len(), 1, "The queue is supposed to be with 1 item")
 

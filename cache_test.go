@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/LopatkinEvgeniy/clock"
 	. "github.com/jellydator/ttlcache/v2"
 	"github.com/stretchr/testify/assert"
 )
@@ -37,8 +38,10 @@ func TestCache_SimpleCache(t *testing.T) {
 func TestCache_GetByLoaderRace(t *testing.T) {
 	t.Skip()
 	t.Parallel()
-	cache := NewCache()
-	cache.SetTTL(time.Microsecond)
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	ttl := time.Minute
+	cache.SetTTL(ttl)
 	defer cache.Close()
 
 	loaderInvocations := uint64(0)
@@ -47,7 +50,7 @@ func TestCache_GetByLoaderRace(t *testing.T) {
 	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
 		atomic.AddUint64(&inFlight, 1)
 		atomic.AddUint64(&loaderInvocations, 1)
-		time.Sleep(time.Microsecond)
+		mockClock.Advance(ttl)
 		assert.Equal(t, uint64(1), inFlight)
 		defer atomic.AddUint64(&inFlight, ^uint64(0))
 		return "global", 0, nil
@@ -78,7 +81,7 @@ func TestCache_GetByLoaderRace(t *testing.T) {
 // This is faciliated by supplying a loder function with Get's.
 func TestCache_GetByLoader(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	cache := NewClockCache(clock.NewFakeClock())
 	defer cache.Close()
 
 	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
@@ -187,7 +190,8 @@ func TestCache_textExpirationReasons(t *testing.T) {
 
 func TestCache_TestTouch(t *testing.T) {
 	t.Parallel()
-	cache := NewCache()
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
 	defer cache.Close()
 
 	lock := sync.Mutex{}
@@ -204,12 +208,13 @@ func TestCache_TestTouch(t *testing.T) {
 	})
 
 	cache.SetWithTTL("key", "data", time.Millisecond*900)
-	<-time.After(time.Millisecond * 500)
-
+	mockClock.Advance(time.Millisecond * 500)
+	time.Sleep(time.Millisecond) // yield
 	// no Touch
-	//	cache.Touch("key")
+	// cache.Touch("key")
 
-	<-time.After(time.Millisecond * 500)
+	mockClock.Advance(time.Millisecond * 500)
+	time.Sleep(time.Millisecond) // yield
 	lock.Lock()
 	assert.Equal(t, true, expired)
 	lock.Unlock()
@@ -220,10 +225,13 @@ func TestCache_TestTouch(t *testing.T) {
 	lock.Unlock()
 
 	cache.SetWithTTL("key", "data", time.Millisecond*900)
-	<-time.After(time.Millisecond * 500)
+	mockClock.Advance(time.Millisecond * 500)
+
 	cache.Touch("key")
 
-	<-time.After(time.Millisecond * 500)
+	mockClock.Advance(time.Millisecond * 500)
+
+	time.Sleep(time.Millisecond) // yield
 	lock.Lock()
 	assert.Equal(t, false, expired)
 	lock.Unlock()
@@ -475,7 +483,6 @@ func TestCache_MultipleCloseCalls(t *testing.T) {
 }
 
 // test for Feature request in issue #12
-//
 func TestCache_SkipTtlExtensionOnHit(t *testing.T) {
 	t.Parallel()
 

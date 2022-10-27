@@ -2,6 +2,8 @@ package ttlcache
 
 import (
 	"time"
+
+	"github.com/LopatkinEvgeniy/clock"
 )
 
 const (
@@ -11,11 +13,12 @@ const (
 	ItemExpireWithGlobalTTL time.Duration = 0
 )
 
-func newItem(key string, data interface{}, ttl time.Duration) *item {
+func newItem(key string, data interface{}, ttl time.Duration, c clock.Clock) *item {
 	item := &item{
-		data: data,
-		ttl:  ttl,
-		key:  key,
+		data:  data,
+		ttl:   ttl,
+		key:   key,
+		clock: c,
 	}
 	// since nobody is aware yet of this item, it's safe to touch without lock here
 	item.touch()
@@ -28,12 +31,13 @@ type item struct {
 	ttl        time.Duration
 	expireAt   time.Time
 	queueIndex int
+	clock      clock.Clock
 }
 
 // Reset the item expiration time
 func (item *item) touch() {
 	if item.ttl > 0 {
-		item.expireAt = time.Now().Add(item.ttl)
+		item.expireAt = item.clock.Now().Add(item.ttl)
 	}
 }
 
