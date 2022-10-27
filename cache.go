@@ -205,17 +205,15 @@ func (cache *Cache) evictjob(reason EvictionReason) {
 
 func (cache *Cache) cleanjob() {
 	// index will only be advanced if the current entry will not be evicted
-	i := 0
-	for item := cache.priorityQueue.items[i]; item.expired(); item = cache.priorityQueue.items[i] {
-
+	for {
+		item := cache.priorityQueue.items[0]
+		if !item.expired() {
+			return
+		}
 		if cache.checkExpireCallback != nil {
 			if !cache.checkExpireCallback(item.key, item.data) {
 				item.touch()
 				cache.priorityQueue.update(item)
-				i++
-				if i == cache.priorityQueue.Len() {
-					break
-				}
 				continue
 			}
 		}
