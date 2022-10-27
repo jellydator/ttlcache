@@ -38,10 +38,8 @@ func TestCache_SimpleCache(t *testing.T) {
 func TestCache_GetByLoaderRace(t *testing.T) {
 	t.Skip()
 	t.Parallel()
-	mockClock := clock.NewFakeClock()
-	cache := NewClockCache(mockClock)
-	ttl := time.Minute
-	cache.SetTTL(ttl)
+	cache := NewCache()
+	cache.SetTTL(time.Microsecond)
 	defer cache.Close()
 
 	loaderInvocations := uint64(0)
@@ -50,7 +48,7 @@ func TestCache_GetByLoaderRace(t *testing.T) {
 	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
 		atomic.AddUint64(&inFlight, 1)
 		atomic.AddUint64(&loaderInvocations, 1)
-		mockClock.Advance(ttl)
+		time.Sleep(time.Microsecond)
 		assert.Equal(t, uint64(1), inFlight)
 		defer atomic.AddUint64(&inFlight, ^uint64(0))
 		return "global", 0, nil
@@ -81,7 +79,7 @@ func TestCache_GetByLoaderRace(t *testing.T) {
 // This is faciliated by supplying a loder function with Get's.
 func TestCache_GetByLoader(t *testing.T) {
 	t.Parallel()
-	cache := NewClockCache(clock.NewFakeClock())
+	cache := NewCache()
 	defer cache.Close()
 
 	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
@@ -187,11 +185,9 @@ func TestCache_textExpirationReasons(t *testing.T) {
 	assert.Equal(t, Closed, reason)
 
 }
-
 func TestCache_TestTouch(t *testing.T) {
 	t.Parallel()
-	mockClock := clock.NewFakeClock()
-	cache := NewClockCache(mockClock)
+	cache := NewCache()
 	defer cache.Close()
 
 	lock := sync.Mutex{}
@@ -208,13 +204,12 @@ func TestCache_TestTouch(t *testing.T) {
 	})
 
 	cache.SetWithTTL("key", "data", time.Millisecond*900)
-	mockClock.Advance(time.Millisecond * 500)
-	time.Sleep(time.Millisecond) // yield
-	// no Touch
-	// cache.Touch("key")
+	<-time.After(time.Millisecond * 500)
 
-	mockClock.Advance(time.Millisecond * 500)
-	time.Sleep(time.Millisecond) // yield
+	// no Touch
+	//	cache.Touch("key")
+
+	<-time.After(time.Millisecond * 500)
 	lock.Lock()
 	assert.Equal(t, true, expired)
 	lock.Unlock()
@@ -225,13 +220,10 @@ func TestCache_TestTouch(t *testing.T) {
 	lock.Unlock()
 
 	cache.SetWithTTL("key", "data", time.Millisecond*900)
-	mockClock.Advance(time.Millisecond * 500)
-
+	<-time.After(time.Millisecond * 500)
 	cache.Touch("key")
 
-	mockClock.Advance(time.Millisecond * 500)
-
-	time.Sleep(time.Millisecond) // yield
+	<-time.After(time.Millisecond * 500)
 	lock.Lock()
 	assert.Equal(t, false, expired)
 	lock.Unlock()
@@ -782,6 +774,7 @@ func TestCacheMixedExpirations(t *testing.T) {
 	cache.Set("key_2", "value")
 	<-time.After(150 * time.Millisecond)
 	assert.Equal(t, 1, cache.Count(), "Cache should have only 1 item")
+	cache.Purge()
 }
 
 func TestCacheIndividualExpiration(t *testing.T) {
@@ -1058,6 +1051,593 @@ func TestCache_Limit(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		cache.Set("key"+strconv.FormatInt(int64(i), 10), "value")
+	}
+	assert.Equal(t, 10, cache.Count(), "Cache should equal to limit")
+	for i := 90; i < 100; i++ {
+		key := "key" + strconv.FormatInt(int64(i), 10)
+		val, _ := cache.Get(key)
+		assert.Equal(t, "value", val, "Cache should be set [key90, key99]")
+	}
+}
+
+func TestCache_GetByLoaderRace_MockTime(t *testing.T) {
+	t.Skip()
+	t.Parallel()
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	ttl := time.Minute
+	cache.SetTTL(ttl)
+	defer cache.Close()
+
+	loaderInvocations := uint64(0)
+	inFlight := uint64(0)
+
+	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
+		atomic.AddUint64(&inFlight, 1)
+		atomic.AddUint64(&loaderInvocations, 1)
+		mockClock.Advance(ttl)
+		assert.Equal(t, uint64(1), inFlight)
+		defer atomic.AddUint64(&inFlight, ^uint64(0))
+		return "global", 0, nil
+
+	}
+	cache.SetLoaderFunction(globalLoader)
+
+	for i := 0; i < 1000; i++ {
+		wg := sync.WaitGroup{}
+		for i := 0; i < 1000; i++ {
+			wg.Add(1)
+			go func() {
+				key, _ := cache.Get("test")
+				assert.Equal(t, "global", key)
+				wg.Done()
+
+			}()
+		}
+		wg.Wait()
+		t.Logf("Invocations: %d\n", loaderInvocations)
+		loaderInvocations = 0
+	}
+
+}
+
+func TestCache_GetByLoader_MockTime(t *testing.T) {
+	t.Parallel()
+	cache := NewClockCache(clock.NewFakeClock())
+	defer cache.Close()
+
+	globalLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
+		return "global", 0, nil
+	}
+	cache.SetLoaderFunction(globalLoader)
+
+	localLoader := func(key string) (data interface{}, ttl time.Duration, err error) {
+		return "local", 0, nil
+	}
+
+	key, _ := cache.Get("test")
+	assert.Equal(t, "global", key)
+
+	cache.Remove("test")
+
+	localKey, _ := cache.GetByLoader("test", localLoader)
+	assert.Equal(t, "local", localKey)
+
+	cache.Remove("test")
+
+	globalKey, _ := cache.GetByLoader("test", globalLoader)
+	assert.Equal(t, "global", globalKey)
+
+	cache.Remove("test")
+
+	defaultKey, _ := cache.GetByLoader("test", nil)
+	assert.Equal(t, "global", defaultKey)
+
+	cache.Remove("test")
+}
+
+func TestCache_TestTouch_MockTime(t *testing.T) {
+	t.Parallel()
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	lock := sync.Mutex{}
+
+	lock.Lock()
+	expired := false
+	lock.Unlock()
+
+	cache.SkipTTLExtensionOnHit(true)
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		lock.Lock()
+		defer lock.Unlock()
+		expired = true
+	})
+
+	cache.SetWithTTL("key", "data", time.Millisecond*900)
+	mockClock.Advance(time.Millisecond * 500)
+	time.Sleep(time.Millisecond) // yield
+	// no Touch
+	// cache.Touch("key")
+
+	mockClock.Advance(time.Millisecond * 500)
+	time.Sleep(time.Millisecond) // yield
+	lock.Lock()
+	assert.Equal(t, true, expired)
+	lock.Unlock()
+	cache.Remove("key")
+
+	lock.Lock()
+	expired = false
+	lock.Unlock()
+
+	cache.SetWithTTL("key", "data", time.Millisecond*900)
+	mockClock.Advance(time.Millisecond * 500)
+
+	cache.Touch("key")
+	time.Sleep(time.Millisecond) // yield
+
+	mockClock.Advance(time.Millisecond * 500)
+
+	time.Sleep(time.Millisecond) // yield
+	lock.Lock()
+	assert.Equal(t, false, expired)
+	lock.Unlock()
+
+	mockClock.Advance(time.Millisecond * 500)
+	time.Sleep(time.Millisecond) // yield
+	lock.Lock()
+	assert.Equal(t, true, expired)
+	lock.Unlock()
+}
+
+func TestCache_TestMetrics_MockTime(t *testing.T) {
+	t.Parallel()
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	ttl1 := time.Second
+	cache.SetTTL(ttl1)
+	cache.Set("myKey", "myData")
+	cache.SetWithTTL("myKey2", "myData", ttl1)
+
+	cache.Get("myKey")
+	cache.Get("myMiss")
+
+	metrics := cache.GetMetrics()
+	assert.Equal(t, int64(2), metrics.Inserted)
+	assert.Equal(t, int64(1), metrics.Misses)
+	assert.Equal(t, int64(2), metrics.Hits)
+	assert.Equal(t, int64(1), metrics.Retrievals)
+	cache.Purge()
+	metrics = cache.GetMetrics()
+	assert.Equal(t, int64(2), metrics.Evicted)
+
+	ttl2 := time.Millisecond * 10
+	cache.SetWithTTL("3", "3", ttl2)
+	cache.SetWithTTL("4", "4", ttl2)
+	mockClock.BlockUntil(1)
+	mockClock.Advance(ttl2 + time.Millisecond)
+	mockClock.BlockUntil(1)
+	cache.Count()
+
+	metrics = cache.GetMetrics()
+	assert.Equal(t, int64(4), metrics.Evicted)
+
+}
+
+func TestCache_SetExpirationCallback_MockTime(t *testing.T) {
+	t.Parallel()
+
+	type A struct {
+	}
+
+	// Setup the TTL cache with mock clock
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	ch := make(chan struct{}, 1024)
+	cache.SetTTL(time.Second * 1)
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		t.Logf("This key(%s) has expired\n", key)
+		ch <- struct{}{}
+	})
+	for i := 0; i < 1024; i++ {
+		cache.Set(fmt.Sprintf("item_%d", i), A{})
+		t.Logf("Cache size: %d\n", cache.Count())
+	}
+
+	assert.Equal(t, cache.Count(), 1024)
+
+	expired := 0
+	mockClock.BlockUntil(1)
+	mockClock.Advance(time.Second*1 + 1)
+	for expired != 1024 {
+		<-ch
+		expired++
+	}
+}
+
+func TestRemovalWithTtlDoesNotPanic_MockTime(t *testing.T) {
+	t.Parallel()
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		t.Logf("This key(%s) has expired\n", key)
+	})
+
+	cache.SetWithTTL("keyWithTTL", "value", time.Duration(2*time.Second))
+	cache.Set("key", "value")
+	cache.Remove("key")
+
+	value, err := cache.Get("keyWithTTL")
+	if err == nil {
+		t.Logf("got %s for keyWithTTL\n", value)
+	}
+	assert.Equal(t, 1, cache.Count())
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(time.Second * 3)
+	mockClock.BlockUntil(1)
+
+	value, err = cache.Get("keyWithTTL")
+	if err != nil {
+		t.Logf("got %s for keyWithTTL\n", value)
+	} else {
+		t.Logf("keyWithTTL has gone")
+	}
+	count := cache.Count()
+	t.Logf("cache has %d keys\n", count)
+	mockClock.BlockUntil(1)
+}
+
+func TestCacheIndividualExpirationBiggerThanGlobal_MockTime(t *testing.T) {
+	t.Parallel()
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(time.Second * 150)
+	mockClock.BlockUntil(1)
+
+	data, exists := cache.Get("key")
+	assert.Equal(t, exists, ErrNotFound, "Expected item to not exist")
+	assert.Nil(t, data, "Expected item to be nil")
+}
+
+func TestCacheGlobalExpirationByGlobal_MockTime(t *testing.T) {
+	t.Parallel()
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	cache.Set("key", "value")
+	data, exists := cache.Get("key")
+	assert.Equal(t, exists, nil, "Expected item to exist in cache")
+	assert.Equal(t, data.(string), "value", "Expected item to have 'value' in value")
+
+	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	data, exists = cache.Get("key")
+	assert.Equal(t, exists, nil, "Expected item to exist in cache")
+	assert.Equal(t, data.(string), "value", "Expected item to have 'value' in value")
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(time.Second * 51)
+	mockClock.BlockUntil(1)
+
+	data, exists = cache.Get("key")
+	assert.Equal(t, exists, ErrNotFound, "Expected item to not exist")
+	assert.Nil(t, data, "Expected item to be nil")
+}
+
+func TestCacheGlobalExpiration_MockTime(t *testing.T) {
+	t.Parallel()
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	cache.SetTTL(time.Duration(100 * time.Millisecond))
+	cache.Set("key_1", "value")
+	cache.Set("key_2", "value")
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(time.Second * 101)
+	mockClock.BlockUntil(1)
+
+	assert.Equal(t, 0, cache.Count(), "Cache should be empty")
+
+}
+
+func TestCacheMixedExpirations_MockTime(t *testing.T) {
+	t.Parallel()
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		t.Logf("expired: %s", key)
+	})
+	cache.Set("key_1", "value")
+	cache.SetTTL(time.Duration(100 * time.Millisecond))
+	cache.Set("key_2", "value")
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(time.Second * 101)
+	mockClock.BlockUntil(1)
+
+	assert.Equal(t, 1, cache.Count(), "Cache should have only 1 item")
+	cache.Purge()
+
+}
+
+func TestCacheIndividualExpiration_MockTime(t *testing.T) {
+	t.Parallel()
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
+	cache.SetWithTTL("key2", "value", time.Duration(100*time.Millisecond))
+	cache.SetWithTTL("key3", "value", time.Duration(100*time.Millisecond))
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(time.Millisecond * 51)
+	mockClock.BlockUntil(1)
+
+	assert.Equal(t, cache.Count(), 3, "Should have 3 elements in cache")
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(time.Millisecond * 50)
+	mockClock.BlockUntil(1)
+
+	assert.Equal(t, cache.Count(), 0, "Cache should be empty")
+
+	cache.SetWithTTL("key3", "value", time.Duration(50*time.Millisecond))
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(time.Millisecond * 100)
+	time.Sleep(time.Millisecond)
+	mockClock.Advance(time.Millisecond * 100)
+	mockClock.BlockUntil(1)
+
+	assert.Equal(t, 0, cache.Count(), "Cache should be empty")
+}
+
+func TestCacheGetWithTTL_MockTime(t *testing.T) {
+	t.Parallel()
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	data, ttl, exists := cache.GetWithTTL("hello")
+	assert.Equal(t, exists, ErrNotFound, "Expected empty cache to return no data")
+	assert.Nil(t, data, "Expected data to be empty")
+	assert.Equal(t, int(ttl), 0, "Expected item TTL to be 0")
+
+	cache.Set("hello", "world")
+	data, ttl, exists = cache.GetWithTTL("hello")
+	assert.NotNil(t, data, "Expected data to be not nil")
+	assert.Equal(t, nil, exists, "Expected data to exist")
+	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
+	assert.Equal(t, int(ttl), 0, "Expected item TTL to be 0")
+
+	orgttl := time.Duration(500 * time.Millisecond)
+	cache.SetWithTTL("hello", "world", orgttl)
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(10 * time.Millisecond)
+	time.Sleep(time.Millisecond)
+
+	data, ttl, exists = cache.GetWithTTL("hello")
+	assert.NotNil(t, data, "Expected data to be not nil")
+	assert.Equal(t, nil, exists, "Expected data to exist")
+	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
+	assert.Equal(t, ttl, orgttl, "Expected item TTL to be original TTL")
+
+	cache.SkipTTLExtensionOnHit(true)
+	cache.SetWithTTL("hello", "world", orgttl)
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(10 * time.Millisecond)
+	time.Sleep(time.Millisecond)
+
+	data, ttl, exists = cache.GetWithTTL("hello")
+	assert.NotNil(t, data, "Expected data to be not nil")
+	assert.Equal(t, nil, exists, "Expected data to exist")
+	assert.Equal(t, "world", (data.(string)), "Expected data content to be 'world'")
+	assert.Less(t, ttl, orgttl, "Expected item TTL to be less than the original TTL")
+	assert.NotEqual(t, int(ttl), 0, "Expected item TTL to be not 0")
+}
+
+func TestCacheExpirationCallbackFunction_MockTime(t *testing.T) {
+	t.Parallel()
+
+	expiredCount := 0
+	var lock sync.Mutex
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	cache.SetTTL(time.Duration(500 * time.Millisecond))
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		lock.Lock()
+		defer lock.Unlock()
+		expiredCount = expiredCount + 1
+	})
+	cache.SetWithTTL("key", "value", time.Duration(1000*time.Millisecond))
+	cache.Set("key_2", "value")
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(1100 * time.Millisecond)
+	time.Sleep(time.Millisecond)
+
+	lock.Lock()
+	defer lock.Unlock()
+	assert.Equal(t, 2, expiredCount, "Expected 2 items to be expired")
+}
+
+func TestCacheCheckExpirationCallbackFunction_MockTime(t *testing.T) {
+	t.Parallel()
+
+	expiredCount := 0
+	var lock sync.Mutex
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	cache.SkipTTLExtensionOnHit(true)
+	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	cache.SetCheckExpirationCallback(func(key string, value interface{}) bool {
+		if key == "key2" || key == "key4" {
+			return true
+		}
+		return false
+	})
+	cache.SetExpirationCallback(func(key string, value interface{}) {
+		lock.Lock()
+		expiredCount = expiredCount + 1
+		lock.Unlock()
+	})
+	cache.Set("key", "value")
+	cache.Set("key3", "value")
+	cache.Set("key2", "value")
+	cache.Set("key4", "value")
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(1000 * time.Millisecond)
+	time.Sleep(time.Millisecond)
+	mockClock.BlockUntil(1)
+	mockClock.Advance(51 * time.Millisecond)
+	time.Sleep(time.Millisecond)
+
+	lock.Lock()
+	assert.Equal(t, 2, expiredCount, "Expected 2 items to be expired")
+	lock.Unlock()
+}
+
+func TestCacheNewItemCallbackFunction_MockTime(t *testing.T) {
+	t.Parallel()
+
+	newItemCount := 0
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	cache.SetNewItemCallback(func(key string, value interface{}) {
+		newItemCount = newItemCount + 1
+	})
+	cache.Set("key", "value")
+	cache.Set("key2", "value")
+	cache.Set("key", "value")
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(51 * time.Millisecond)
+	mockClock.BlockUntil(1)
+
+	assert.Equal(t, 2, newItemCount, "Expected only 2 new items")
+}
+
+func TestCacheRemove_MockTime(t *testing.T) {
+	t.Parallel()
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	cache.SetTTL(time.Duration(50 * time.Millisecond))
+	cache.SetWithTTL("key", "value", time.Duration(100*time.Millisecond))
+	cache.Set("key_2", "value")
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(70 * time.Millisecond)
+	mockClock.BlockUntil(1)
+
+	removeKey := cache.Remove("key")
+	removeKey2 := cache.Remove("key_2")
+	assert.Equal(t, nil, removeKey, "Expected 'key' to be removed from cache")
+	assert.Equal(t, ErrNotFound, removeKey2, "Expected 'key_2' to already be expired from cache")
+}
+
+func TestCacheSetWithTTLExistItem_MockTime(t *testing.T) {
+	t.Parallel()
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	cache.SetTTL(time.Duration(100 * time.Millisecond))
+	cache.SetWithTTL("key", "value", time.Duration(50*time.Millisecond))
+
+	mockClock.BlockUntil(1)
+	mockClock.Advance(30 * time.Millisecond)
+	mockClock.BlockUntil(1)
+
+	cache.SetWithTTL("key", "value2", time.Duration(50*time.Millisecond))
+	data, exists := cache.Get("key")
+	assert.Equal(t, nil, exists, "Expected 'key' to exist")
+	assert.Equal(t, "value2", data.(string), "Expected 'data' to have value 'value2'")
+}
+
+func TestCache_Purge_MockTime(t *testing.T) {
+	t.Parallel()
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	cache.SetTTL(time.Duration(100 * time.Millisecond))
+
+	for i := 0; i < 5; i++ {
+
+		cache.SetWithTTL("key", "value", time.Duration(50*time.Millisecond))
+
+		mockClock.BlockUntil(1)
+		mockClock.Advance(30 * time.Millisecond)
+		mockClock.BlockUntil(1)
+
+		cache.SetWithTTL("key", "value2", time.Duration(50*time.Millisecond))
+		cache.Get("key")
+
+		cache.Purge()
+		assert.Equal(t, 0, cache.Count(), "Cache should be empty")
+	}
+
+}
+
+func TestCache_Limit_MockTime(t *testing.T) {
+	t.Parallel()
+
+	mockClock := clock.NewFakeClock()
+	cache := NewClockCache(mockClock)
+	defer cache.Close()
+
+	cache.SetTTL(time.Duration(100 * time.Second))
+	cache.SetCacheSizeLimit(10)
+
+	for i := 0; i < 100; i++ {
+		cache.Set("key"+strconv.FormatInt(int64(i), 10), "value")
+		mockClock.Advance(time.Nanosecond)
+
 	}
 	assert.Equal(t, 10, cache.Count(), "Cache should equal to limit")
 	for i := 90; i < 100; i++ {

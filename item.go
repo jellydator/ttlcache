@@ -46,5 +46,5 @@ func (item *item) expired() bool {
 	if item.ttl <= 0 {
 		return false
 	}
-	return item.expireAt.Before(time.Now())
+	return item.expireAt.Before(item.clock.Now())
 }
