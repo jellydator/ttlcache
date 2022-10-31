@@ -3,8 +3,7 @@ module github.com/jellydator/ttlcache/v2
 go 1.15
 
 require (
-	github.com/LopatkinEvgeniy/clock v0.0.0-20181129135056-768e3044b657 // indirect
-	github.com/benbjohnson/clock v1.3.0 // indirect
+	github.com/LopatkinEvgeniy/clock v0.0.0-20181129135056-768e3044b657
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/stretchr/testify v1.7.0
 	go.uber.org/goleak v1.1.10

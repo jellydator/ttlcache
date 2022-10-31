@@ -774,7 +774,7 @@ func TestCacheMixedExpirations(t *testing.T) {
 	cache.Set("key_2", "value")
 	<-time.After(150 * time.Millisecond)
 	assert.Equal(t, 1, cache.Count(), "Cache should have only 1 item")
-	cache.Purge()
+	cache.Purge() // Calling purge there to avoid failing because of triggering callback after end of the test
 }
 
 func TestCacheIndividualExpiration(t *testing.T) {

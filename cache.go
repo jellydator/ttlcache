@@ -192,9 +192,8 @@ func (cache *Cache) removeItem(item *item, reason EvictionReason) {
 }
 
 func (cache *Cache) evictjob(reason EvictionReason) {
-	// index will only be advanced if the current entry will not be evicted
 	i := 0
-	for item := cache.priorityQueue.items[i]; ; item = cache.priorityQueue.items[i] {
+	for item := cache.priorityQueue.items[0]; ; item = cache.priorityQueue.items[i] {
 
 		cache.removeItem(item, reason)
 		if cache.priorityQueue.Len() == 0 {
@@ -204,7 +203,6 @@ func (cache *Cache) evictjob(reason EvictionReason) {
 }
 
 func (cache *Cache) cleanjob() {
-	// index will only be advanced if the current entry will not be evicted
 	for {
 		item := cache.priorityQueue.items[0]
 		if !item.expired() {
