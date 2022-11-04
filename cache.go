@@ -543,6 +543,18 @@ type SuppressedLoader[K comparable, V any] struct {
 	group *singleflight.Group
 }
 
+// NewSuppressedLoader creates a new instance of supressed loader.
+func NewSuppressedLoader[K comparable, V any](loader Loader[K, V], group *singleflight.Group) *SuppressedLoader[K, V] {
+	if group == nil {
+		group = &singleflight.Group{}
+	}
+
+	return &SuppressedLoader[K, V]{
+		Loader: loader,
+		group:  group,
+	}
+}
+
 // Load executes a custom item retrieval logic and returns the item that
 // is associated with the key.
 // It returns nil if the item is not found/valid.
