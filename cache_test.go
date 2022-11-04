@@ -945,6 +945,40 @@ func Test_LoaderFunc_Load(t *testing.T) {
 	assert.True(t, called)
 }
 
+func Test_NewSuppressedLoader(t *testing.T) {
+	var called bool
+
+	loader := LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+		called = true
+		return nil
+	})
+
+	// uses the provided loader and group parameters
+	group := &singleflight.Group{}
+
+	sl := NewSuppressedLoader[string, string](loader, group)
+	require.NotNil(t, sl)
+	require.NotNil(t, sl.loader)
+
+	sl.loader.Load(nil, "")
+
+	assert.True(t, called)
+	assert.Equal(t, group, sl.group)
+
+	// uses the provided loader and automatically creates a new instance
+	// of *singleflight.Group as nil parameter is passed
+	called = false
+
+	sl = NewSuppressedLoader[string, string](loader, nil)
+	require.NotNil(t, sl)
+	require.NotNil(t, sl.loader)
+
+	sl.loader.Load(nil, "")
+
+	assert.True(t, called)
+	assert.NotNil(t, group, sl.group)
+}
+
 func Test_SuppressedLoader_Load(t *testing.T) {
 	var (
 		mu        sync.Mutex
@@ -954,7 +988,7 @@ func Test_SuppressedLoader_Load(t *testing.T) {
 	)
 
 	l := SuppressedLoader[string, string]{
-		Loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+		loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
 			mu.Lock()
 			loadCalls++
 			mu.Unlock()
