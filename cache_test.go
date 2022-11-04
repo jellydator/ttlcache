@@ -965,8 +965,8 @@ func Test_NewSuppressedLoader(t *testing.T) {
 	assert.True(t, called)
 	assert.Equal(t, group, sl.group)
 
-	// uses the provided loader and automatically creates a singleflight
-	// group as nil is passed
+	// uses the provided loader and automatically creates a new instance
+	// of *singleflight.Group as nil parameter is passed
 	called = false
 
 	sl = NewSuppressedLoader[string, string](loader, nil)

@@ -543,6 +543,8 @@ type SuppressedLoader[K comparable, V any] struct {
 }
 
 // NewSuppressedLoader creates a new instance of suppressed loader.
+// If the group parameter is nil, a newly created instance of
+// *singleflight.Group is used.
 func NewSuppressedLoader[K comparable, V any](loader Loader[K, V], group *singleflight.Group) *SuppressedLoader[K, V] {
 	if group == nil {
 		group = &singleflight.Group{}
