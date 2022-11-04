@@ -538,19 +538,18 @@ func (l LoaderFunc[K, V]) Load(c *Cache[K, V], key K) *Item[K, V] {
 // SuppressedLoader wraps another Loader and suppresses duplicate
 // calls to its Load method.
 type SuppressedLoader[K comparable, V any] struct {
-	Loader[K, V]
-
-	group *singleflight.Group
+	loader Loader[K, V]
+	group  *singleflight.Group
 }
 
-// NewSuppressedLoader creates a new instance of supressed loader.
+// NewSuppressedLoader creates a new instance of suppressed loader.
 func NewSuppressedLoader[K comparable, V any](loader Loader[K, V], group *singleflight.Group) *SuppressedLoader[K, V] {
 	if group == nil {
 		group = &singleflight.Group{}
 	}
 
 	return &SuppressedLoader[K, V]{
-		Loader: loader,
+		loader: loader,
 		group:  group,
 	}
 }
@@ -571,7 +570,7 @@ func (l *SuppressedLoader[K, V]) Load(c *Cache[K, V], key K) *Item[K, V] {
 	// the error that we return ourselves in the func below, which
 	// is also nil
 	res, _, _ := l.group.Do(strKey, func() (interface{}, error) {
-		item := l.Loader.Load(c, key)
+		item := l.loader.Load(c, key)
 		if item == nil {
 			return nil, nil
 		}

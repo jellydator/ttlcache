@@ -958,9 +958,9 @@ func Test_NewSuppressedLoader(t *testing.T) {
 
 	sl := NewSuppressedLoader[string, string](loader, group)
 	require.NotNil(t, sl)
-	require.NotNil(t, sl.Loader)
+	require.NotNil(t, sl.loader)
 
-	sl.Loader.Load(nil, "")
+	sl.loader.Load(nil, "")
 
 	assert.True(t, called)
 	assert.Equal(t, group, sl.group)
@@ -971,9 +971,9 @@ func Test_NewSuppressedLoader(t *testing.T) {
 
 	sl = NewSuppressedLoader[string, string](loader, nil)
 	require.NotNil(t, sl)
-	require.NotNil(t, sl.Loader)
+	require.NotNil(t, sl.loader)
 
-	sl.Loader.Load(nil, "")
+	sl.loader.Load(nil, "")
 
 	assert.True(t, called)
 	assert.NotNil(t, group, sl.group)
@@ -988,7 +988,7 @@ func Test_SuppressedLoader_Load(t *testing.T) {
 	)
 
 	l := SuppressedLoader[string, string]{
-		Loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
+		loader: LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] {
 			mu.Lock()
 			loadCalls++
 			mu.Unlock()
