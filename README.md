@@ -88,6 +88,12 @@ func main() {
 	cache.Delete("second")
 	cache.DeleteExpired()
 	cache.DeleteAll()
+
+	// retrieve data if in cache otherwise insert data
+	item, retrieved := cache.GetOrSet("fourth", "value4", WithTTL[string, string](ttlcache.DefaultTTL))
+
+	// retrieve and delete data
+	item, present := cache.GetAndDelete("fourth")
 }
 ```
 
