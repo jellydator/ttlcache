@@ -100,10 +100,10 @@ func main() {
 		ttlcache.WithCapacity[string, string](300),
 	)
 
-	cache.OnInsertion(func(item *ttlcache.Item[string, string]) {
+	cache.OnInsertion(func(context.Context, item *ttlcache.Item[string, string]) {
 		fmt.Println(item.Value(), item.ExpiresAt())
 	})
-	cache.OnEviction(func(reason ttlcache.EvictionReason, item *ttlcache.Item[string, string]) {
+	cache.OnEviction(func(context.Context, reason ttlcache.EvictionReason, item *ttlcache.Item[string, string]) {
 		if reason == ttlcache.EvictionReasonCapacityReached {
 			fmt.Println(item.Key(), item.Value())
 		}
