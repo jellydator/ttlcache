@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/singleflight"
@@ -37,8 +38,7 @@ type Cache[K comparable, V any] struct {
 		timerCh chan time.Duration
 	}
 
-	metricsMu sync.RWMutex
-	metrics   Metrics
+	metrics Metrics
 
 	events struct {
 		insertion struct {
@@ -152,9 +152,7 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 	c.items.values[key] = elem
 	c.updateExpirations(true, elem)
 
-	c.metricsMu.Lock()
-	c.metrics.Insertions++
-	c.metricsMu.Unlock()
+	atomic.AddUint64(&c.metrics.Insertions, 1)
 
 	c.events.insertion.mu.RLock()
 	for _, fn := range c.events.insertion.fns {
@@ -196,9 +194,7 @@ func (c *Cache[K, V]) get(key K, touch bool) *list.Element {
 // Not concurrently safe.
 func (c *Cache[K, V]) evict(reason EvictionReason, elems ...*list.Element) {
 	if len(elems) > 0 {
-		c.metricsMu.Lock()
-		c.metrics.Evictions += uint64(len(elems))
-		c.metricsMu.Unlock()
+		atomic.AddUint64(&c.metrics.Evictions, uint64(len(elems)))
 
 		c.events.eviction.mu.RLock()
 		for i := range elems {
@@ -216,9 +212,7 @@ func (c *Cache[K, V]) evict(reason EvictionReason, elems ...*list.Element) {
 		return
 	}
 
-	c.metricsMu.Lock()
-	c.metrics.Evictions += uint64(len(c.items.values))
-	c.metricsMu.Unlock()
+	atomic.AddUint64(&c.metrics.Evictions, uint64(len(c.items.values)))
 
 	c.events.eviction.mu.RLock()
 	for _, elem := range c.items.values {
@@ -262,9 +256,7 @@ func (c *Cache[K, V]) Get(key K, opts ...Option[K, V]) *Item[K, V] {
 	c.items.mu.Unlock()
 
 	if elem == nil {
-		c.metricsMu.Lock()
-		c.metrics.Misses++
-		c.metricsMu.Unlock()
+		atomic.AddUint64(&c.metrics.Misses, 1)
 
 		if getOpts.loader != nil {
 			return getOpts.loader.Load(c, key)
@@ -273,9 +265,7 @@ func (c *Cache[K, V]) Get(key K, opts ...Option[K, V]) *Item[K, V] {
 		return nil
 	}
 
-	c.metricsMu.Lock()
-	c.metrics.Hits++
-	c.metricsMu.Unlock()
+	atomic.AddUint64(&c.metrics.Hits, 1)
 
 	return elem.Value.(*Item[K, V])
 }
@@ -371,11 +361,14 @@ func (c *Cache[K, V]) Items() map[K]*Item[K, V] {
 }
 
 // Metrics returns the metrics of the cache.
-func (c *Cache[K, V]) Metrics() Metrics {
-	c.metricsMu.RLock()
-	defer c.metricsMu.RUnlock()
-
-	return c.metrics
+func (c *Cache[K, V]) Metrics() (m Metrics) {
+	// I imagine on most architectures this is equivalent to
+	// simply writing: return c.metrics
+	m.Insertions = atomic.LoadUint64(&c.metrics.Insertions)
+	m.Hits = atomic.LoadUint64(&c.metrics.Hits)
+	m.Misses = atomic.LoadUint64(&c.metrics.Misses)
+	m.Evictions = atomic.LoadUint64(&c.metrics.Evictions)
+	return
 }
 
 // Start starts an automatic cleanup process that

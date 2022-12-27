@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -730,9 +731,7 @@ func Test_Cache_Start(t *testing.T) {
 		go func() {
 			assert.Equal(t, EvictionReasonExpired, r)
 
-			cache.metricsMu.RLock()
-			v := cache.metrics.Evictions
-			cache.metricsMu.RUnlock()
+			v := atomic.LoadUint64(&cache.metrics.Evictions)
 
 			switch v {
 			case 1:
