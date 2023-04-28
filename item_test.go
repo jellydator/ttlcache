@@ -93,3 +93,32 @@ func Test_Item_ExpiresAt(t *testing.T) {
 
 	assert.Equal(t, now, item.ExpiresAt())
 }
+
+func TestItem_Version(t *testing.T) {
+	// TTL=DefaultTTL
+	item := newItem("key1", "value1", DefaultTTL)
+	assert.Equal(t, uint64(0), item.Version())
+
+	item.update("newValue1", DefaultTTL)
+	assert.Equal(t, uint64(1), item.Version())
+
+	item.update("newValue2", DefaultTTL)
+	assert.Equal(t, uint64(2), item.Version())
+
+	item.touch()
+	assert.Equal(t, uint64(2), item.Version())
+
+	item.update("newValue2", time.Minute)
+	item.touch()
+	assert.Equal(t, uint64(4), item.Version())
+
+	// TTL=time.Minute
+	item2 := newItem("key1", "v1", time.Minute)
+	assert.Equal(t, uint64(1), item2.Version())
+
+	item2.update("v2", time.Minute)
+	assert.Equal(t, uint64(2), item2.Version())
+
+	item2.touch()
+	assert.Equal(t, uint64(3), item2.Version())
+}

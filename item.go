@@ -32,6 +32,7 @@ type Item[K comparable, V any] struct {
 	ttl        time.Duration
 	expiresAt  time.Time
 	queueIndex int
+	version    uint64
 }
 
 // newItem creates a new cache item.
@@ -57,7 +58,11 @@ func (item *Item[K, V]) update(value V, ttl time.Duration) {
 	// reset expiration timestamp because the new TTL may be
 	// 0 or below
 	item.expiresAt = time.Time{}
+	version := item.version
 	item.touchUnsafe()
+	if version == item.version {
+		item.version++
+	}
 }
 
 // touch updates the item's expiration timestamp.
@@ -76,6 +81,7 @@ func (item *Item[K, V]) touchUnsafe() {
 	}
 
 	item.expiresAt = time.Now().Add(item.ttl)
+	item.version++
 }
 
 // IsExpired returns a bool value that indicates whether the item
@@ -127,4 +133,13 @@ func (item *Item[K, V]) ExpiresAt() time.Time {
 	defer item.mu.RUnlock()
 
 	return item.expiresAt
+}
+
+// Version returns the version of the item. Version shows the total number of
+// changes made to the item.
+func (item *Item[K, V]) Version() uint64 {
+	item.mu.RLock()
+	defer item.mu.RUnlock()
+
+	return item.version
 }
