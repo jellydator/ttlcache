@@ -628,7 +628,7 @@ func TestCache_Has(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := prepCache(time.Minute, tc.keys...)
+			c := prepCache(NoTTL, tc.keys...)
 			has := c.Has(tc.searchKey)
 			assert.Equal(t, tc.has, has)
 		})
