@@ -301,6 +301,15 @@ func (c *Cache[K, V]) Delete(key K) {
 	c.evict(EvictionReasonDeleted, elem)
 }
 
+// Has checks whether the key exists in the cache.
+func (c *Cache[K, V]) Has(key K) bool {
+	c.items.mu.RLock()
+	defer c.items.mu.RUnlock()
+
+	_, ok := c.items.values[key]
+	return ok
+}
+
 // GetOrSet returns the existing value for the key if present.
 // Otherwise, it sets and returns the given value. The retrieved
 // result is true if the value was retrieved, false if set.
