@@ -599,35 +599,31 @@ func Test_Cache_Delete(t *testing.T) {
 	assert.NotContains(t, cache.items.values, "1")
 }
 
-func TestCache_Has(t *testing.T) {
-	testCases := []struct {
-		name      string
+func Test_Cache_Has(t *testing.T) {
+	cc := map[string]struct {
 		keys      []string
 		searchKey string
 		has       bool
 	}{
-		{
-			name:      "Empty cache",
+		"Empty cache": {
 			keys:      []string{},
 			searchKey: "key1",
 			has:       false,
 		},
-		{
-			name:      "Key exists",
+		"Key exists": {
 			keys:      []string{"key1", "key2", "key3"},
 			searchKey: "key2",
 			has:       true,
 		},
-		{
-			name:      "Key doesn't exist",
+		"Key doesn't exist": {
 			keys:      []string{"key1", "key2", "key3"},
 			searchKey: "key4",
 			has:       false,
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range cc {
+		t.Run(name, func(t *testing.T) {
 			c := prepCache(NoTTL, tc.keys...)
 			has := c.Has(tc.searchKey)
 			assert.Equal(t, tc.has, has)
