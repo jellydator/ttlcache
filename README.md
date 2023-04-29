@@ -67,8 +67,8 @@ func main() {
 }
 ```
 
-The data stored in `ttlcache.Cache` can be retrieved and updated with 
-`Set`, `Get`, `Delete`, etc. methods:
+The data stored in `ttlcache.Cache` can be retrieved, checked and updated with 
+`Set`, `Get`, `Delete`, `Has` etc. methods:
 ```go
 func main() {
 	cache := ttlcache.New[string, string](
@@ -84,6 +84,9 @@ func main() {
 	item := cache.Get("first")
 	fmt.Println(item.Value(), item.ExpiresAt())
 
+	// check key 
+	ok := cache.Has("third")
+	
 	// delete data
 	cache.Delete("second")
 	cache.DeleteExpired()

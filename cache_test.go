@@ -599,6 +599,38 @@ func Test_Cache_Delete(t *testing.T) {
 	assert.NotContains(t, cache.items.values, "1")
 }
 
+func Test_Cache_Has(t *testing.T) {
+	cc := map[string]struct {
+		keys      []string
+		searchKey string
+		has       bool
+	}{
+		"Empty cache": {
+			keys:      []string{},
+			searchKey: "key1",
+			has:       false,
+		},
+		"Key exists": {
+			keys:      []string{"key1", "key2", "key3"},
+			searchKey: "key2",
+			has:       true,
+		},
+		"Key doesn't exist": {
+			keys:      []string{"key1", "key2", "key3"},
+			searchKey: "key4",
+			has:       false,
+		},
+	}
+
+	for name, tc := range cc {
+		t.Run(name, func(t *testing.T) {
+			c := prepCache(NoTTL, tc.keys...)
+			has := c.Has(tc.searchKey)
+			assert.Equal(t, tc.has, has)
+		})
+	}
+}
+
 func Test_Cache_GetOrSet(t *testing.T) {
 	cache := prepCache(time.Hour)
 	item, retrieved := cache.GetOrSet("test", "1", WithTTL[string, string](time.Minute))
