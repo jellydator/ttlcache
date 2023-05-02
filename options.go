@@ -17,10 +17,11 @@ func (fn optionFunc[K, V]) apply(opts *options[K, V]) {
 
 // options holds all available cache configuration options.
 type options[K comparable, V any] struct {
-	capacity          uint64
-	ttl               time.Duration
-	loader            Loader[K, V]
-	disableTouchOnHit bool
+	capacity           uint64
+	ttl                time.Duration
+	loader             Loader[K, V]
+	disableTouchOnHit  bool
+	enableVersionTrack bool
 }
 
 // applyOptions applies the provided option values to the option struct.
@@ -44,6 +45,15 @@ func WithTTL[K comparable, V any](ttl time.Duration) Option[K, V] {
 	return optionFunc[K, V](func(opts *options[K, V]) {
 		opts.ttl = ttl
 	})
+}
+
+// WithVersion sets the tracking information of the version field in Item.
+// If you disable it by passing false, the version will always be -1.
+func WithVersion[K comparable, V any](enable bool) Option[K, V] {
+	return optionFunc[K, V](func(opts *options[K, V]) {
+		opts.enableVersionTrack = enable
+	})
+
 }
 
 // WithLoader sets the loader of the cache.

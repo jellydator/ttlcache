@@ -26,21 +26,26 @@ type Item[K comparable, V any] struct {
 	// well, so locking this mutex would be redundant.
 	// In other words, this mutex is only useful when these fields
 	// are being read from the outside (e.g. in event functions).
-	mu         sync.RWMutex
-	key        K
-	value      V
-	ttl        time.Duration
-	expiresAt  time.Time
-	queueIndex int
-	version    uint64
+	mu                 sync.RWMutex
+	key                K
+	value              V
+	ttl                time.Duration
+	expiresAt          time.Time
+	queueIndex         int
+	version            int64
+	enableVersionTrack bool
 }
 
 // newItem creates a new cache item.
-func newItem[K comparable, V any](key K, value V, ttl time.Duration) *Item[K, V] {
+func newItem[K comparable, V any](key K, value V, ttl time.Duration, enableVersionTrack bool) *Item[K, V] {
 	item := &Item[K, V]{
-		key:   key,
-		value: value,
-		ttl:   ttl,
+		key:                key,
+		value:              value,
+		ttl:                ttl,
+		enableVersionTrack: enableVersionTrack,
+	}
+	if !enableVersionTrack {
+		item.version = -1
 	}
 	item.touch()
 
@@ -60,7 +65,7 @@ func (item *Item[K, V]) update(value V, ttl time.Duration) {
 	item.expiresAt = time.Time{}
 	version := item.version
 	item.touchUnsafe()
-	if version == item.version {
+	if version == item.version && item.enableVersionTrack {
 		item.version++
 	}
 }
@@ -81,7 +86,9 @@ func (item *Item[K, V]) touchUnsafe() {
 	}
 
 	item.expiresAt = time.Now().Add(item.ttl)
-	item.version++
+	if item.enableVersionTrack {
+		item.version++
+	}
 }
 
 // IsExpired returns a bool value that indicates whether the item
@@ -137,7 +144,7 @@ func (item *Item[K, V]) ExpiresAt() time.Time {
 
 // Version returns the version of the item. Version shows the total number of
 // changes made to the item.
-func (item *Item[K, V]) Version() uint64 {
+func (item *Item[K, V]) Version() int64 {
 	item.mu.RLock()
 	defer item.mu.RUnlock()
 

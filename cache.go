@@ -147,7 +147,7 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 	}
 
 	// create a new item
-	item := newItem(key, value, ttl)
+	item := newItem(key, value, ttl, c.options.enableVersionTrack)
 	elem = c.items.lru.PushFront(item)
 	c.items.values[key] = elem
 	c.updateExpirations(true, elem)

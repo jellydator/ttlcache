@@ -42,6 +42,16 @@ func Test_WithTTL(t *testing.T) {
 	assert.Equal(t, time.Hour, opts.ttl)
 }
 
+func Test_WithVersion(t *testing.T) {
+	var opts options[string, string]
+
+	WithVersion[string, string](true).apply(&opts)
+	assert.Equal(t, true, opts.enableVersionTrack)
+
+	WithVersion[string, string](false).apply(&opts)
+	assert.Equal(t, false, opts.enableVersionTrack)
+}
+
 func Test_WithLoader(t *testing.T) {
 	var opts options[string, string]
 
