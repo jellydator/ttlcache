@@ -974,6 +974,19 @@ func Test_Cache_OnEviction(t *testing.T) {
 	assert.NotContains(t, cache.events.eviction.fns, uint64(1))
 }
 
+func Test_Cache_Range(t *testing.T) {
+	c := prepCache(DefaultTTL, "1", "2", "3", "4", "5")
+	var results []string
+
+	c.Range(func(item *Item[string, string]) bool {
+		results = append(results, item.Key())
+		return item.Key() != "4"
+	})
+
+	// Only checked not contains element because the map stores data unordered.
+	assert.NotContains(t, "5", results)
+}
+
 func Test_LoaderFunc_Load(t *testing.T) {
 	var called bool
 
