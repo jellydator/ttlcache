@@ -63,9 +63,10 @@ func (item *Item[K, V]) update(value V, ttl time.Duration) {
 	// reset expiration timestamp because the new TTL may be
 	// 0 or below
 	item.expiresAt = time.Time{}
-	version := item.version
 	item.touchUnsafe()
-	if version == item.version && item.enableVersionTrack {
+
+	// update version if it is enabled.
+	if item.enableVersionTrack {
 		item.version++
 	}
 }
@@ -86,9 +87,6 @@ func (item *Item[K, V]) touchUnsafe() {
 	}
 
 	item.expiresAt = time.Now().Add(item.ttl)
-	if item.enableVersionTrack {
-		item.version++
-	}
 }
 
 // IsExpired returns a bool value that indicates whether the item

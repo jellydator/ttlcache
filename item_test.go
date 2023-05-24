@@ -117,17 +117,17 @@ func Test_Item_Version(t *testing.T) {
 
 	item.update("newValue2", time.Minute)
 	item.touch()
-	assert.Equal(t, int64(4), item.Version())
+	assert.Equal(t, int64(3), item.Version())
 
 	// TTL=time.Minute
 	item2 := newItem("key1", "v1", time.Minute, true)
-	assert.Equal(t, int64(1), item2.Version())
+	assert.Equal(t, int64(0), item2.Version())
 
 	item2.update("v2", time.Minute)
-	assert.Equal(t, int64(2), item2.Version())
+	assert.Equal(t, int64(1), item2.Version())
 
 	item2.touch()
-	assert.Equal(t, int64(3), item2.Version())
+	assert.Equal(t, int64(1), item2.Version())
 
 	// enableVersionTrack = false
 	item3 := newItem("key1", "value1", DefaultTTL, false)
