@@ -983,8 +983,7 @@ func Test_Cache_Range(t *testing.T) {
 		return item.Key() != "4"
 	})
 
-	// Only checked not contains element because the map stores data unordered.
-	assert.NotContains(t, "5", results)
+	assert.Equal(t, []string{"5", "4"}, results)
 }
 
 func Test_LoaderFunc_Load(t *testing.T) {
