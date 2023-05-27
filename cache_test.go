@@ -1152,6 +1152,7 @@ func addToCache(c *Cache[string, string], ttl time.Duration, keys ...string) {
 			key,
 			fmt.Sprint("value of", key),
 			ttl+time.Duration(i)*time.Minute,
+			false,
 		)
 		elem := c.items.lru.PushFront(item)
 		c.items.values[key] = elem
