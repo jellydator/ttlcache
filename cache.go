@@ -561,6 +561,23 @@ func (c *Cache[K, V]) OnEviction(fn func(context.Context, EvictionReason, *Item[
 	}
 }
 
+// Range iterate over all items and calls fn function. It calls fn function
+// until it returns false.
+func (c *Cache[K, V]) Range(fn func(item *Item[K, V]) bool) {
+	c.items.mu.RLock()
+	for item := c.items.lru.Front(); item != c.items.lru.Back().Next(); item = item.Next() {
+		i := item.Value.(*Item[K, V])
+		c.items.mu.RUnlock()
+		if !fn(i) {
+			return
+		}
+
+		if item.Next() != nil {
+			c.items.mu.RLock()
+		}
+	}
+}
+
 // Loader is an interface that handles missing data loading.
 type Loader[K comparable, V any] interface {
 	// Load should execute a custom item retrieval logic and
