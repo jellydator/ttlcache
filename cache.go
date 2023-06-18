@@ -19,7 +19,7 @@ const (
 
 // EvictionReason is used to specify why a certain item was
 // evicted/deleted.
-type EvictionReason int
+type EvictionReason byte
 
 // Cache is a synchronised map of items that are automatically removed
 // when they expire or the capacity is reached.
