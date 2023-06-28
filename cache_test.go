@@ -670,6 +670,18 @@ func Test_Cache_GetAndDelete(t *testing.T) {
 	require.Nil(t, item)
 	assert.Nil(t, cache.items.values["test3"])
 	assert.False(t, present)
+
+	loadedItem := &Item[string, string]{key: "test"}
+	item, present = cache.GetAndDelete(
+		"test3",
+		WithLoader[string, string](
+			LoaderFunc[string, string](func(_ *Cache[string, string], _ string) *Item[string, string] { return loadedItem }),
+		),
+	)
+	require.NotNil(t, item)
+	assert.Nil(t, cache.items.values["test3"])
+	assert.True(t, present)
+	assert.Same(t, item, loadedItem)
 }
 
 func Test_Cache_DeleteAll(t *testing.T) {
