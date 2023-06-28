@@ -193,7 +193,9 @@ func (c *Cache[K, V]) get(key K, touch bool) *list.Element {
 // getWithOpts wraps the get method applying the given options.
 // Metrics are updated.
 // It returns nil if the item is not found or is expired.
-func (c *Cache[K, V]) getWithOpts(key K, opts ...Option[K, V]) *Item[K, V] {
+// The useLoader flag signals to use the loader if data not found in cache.
+// Also when the useLoader flag is set, the cache is locked.
+func (c *Cache[K, V]) getWithOpts(key K, useLoader bool, opts ...Option[K, V]) *Item[K, V] {
 	getOpts := options[K, V]{
 		loader:            c.options.loader,
 		disableTouchOnHit: c.options.disableTouchOnHit,
@@ -201,16 +203,22 @@ func (c *Cache[K, V]) getWithOpts(key K, opts ...Option[K, V]) *Item[K, V] {
 
 	applyOptions(&getOpts, opts...)
 
-	c.items.mu.Lock()
+	if useLoader {
+		c.items.mu.Lock()
+	}
+
 	elem := c.get(key, !getOpts.disableTouchOnHit)
-	c.items.mu.Unlock()
+
+	if useLoader {
+		c.items.mu.Unlock()
+	}
 
 	if elem == nil {
 		c.metricsMu.Lock()
 		c.metrics.Misses++
 		c.metricsMu.Unlock()
 
-		if getOpts.loader != nil {
+		if useLoader && getOpts.loader != nil {
 			return getOpts.loader.Load(c, key)
 		}
 
@@ -284,7 +292,7 @@ func (c *Cache[K, V]) Set(key K, value V, ttl time.Duration) *Item[K, V] {
 // expiration timestamp on successful retrieval.
 // If the item is not found, a nil value is returned.
 func (c *Cache[K, V]) Get(key K, opts ...Option[K, V]) *Item[K, V] {
-	return c.getWithOpts(key, opts...)
+	return c.getWithOpts(key, true, opts...)
 }
 
 // Delete deletes an item from the cache. If the item associated with
@@ -293,6 +301,11 @@ func (c *Cache[K, V]) Delete(key K) {
 	c.items.mu.Lock()
 	defer c.items.mu.Unlock()
 
+	c.delete(key)
+}
+
+// delete is used for deleting an item without locks.
+func (c *Cache[K, V]) delete(key K) {
 	elem := c.items.values[key]
 	if elem == nil {
 		return
@@ -313,9 +326,13 @@ func (c *Cache[K, V]) Has(key K) bool {
 // GetOrSet returns the existing value for the key if present.
 // Otherwise, it sets and returns the given value. The retrieved
 // result is true if the value was retrieved, false if set.
+// If a loader is defined, the value won't be loaded during get.
 func (c *Cache[K, V]) GetOrSet(key K, value V, opts ...Option[K, V]) (*Item[K, V], bool) {
-	elem := c.getWithOpts(key, opts...)
+	c.items.mu.Lock()
+
+	elem := c.getWithOpts(key, false, opts...)
 	if elem != nil {
+		c.items.mu.Unlock()
 		return elem, true
 	}
 
@@ -325,19 +342,35 @@ func (c *Cache[K, V]) GetOrSet(key K, value V, opts ...Option[K, V]) (*Item[K, V
 
 	applyOptions(&setOpts, opts...)
 
-	return c.Set(key, value, setOpts.ttl), false
+	item := c.set(key, value, setOpts.ttl)
+	c.items.mu.Unlock()
+
+	return item, false
 }
 
 // GetAndDelete deletes the value for a key, returning the previous
 // value if any. The retrieved result reports whether the key was present.
 func (c *Cache[K, V]) GetAndDelete(key K, opts ...Option[K, V]) (*Item[K, V], bool) {
-	elem := c.getWithOpts(key, opts...)
+	c.items.mu.Lock()
+
+	elem := c.getWithOpts(key, false, opts...)
 	if elem == nil {
+		c.items.mu.Unlock()
+
+		getOpts := options[K, V]{
+			loader: c.options.loader,
+		}
+		applyOptions(&getOpts, opts...)
+
+		if getOpts.loader != nil {
+			item := getOpts.loader.Load(c, key)
+			return item, item != nil
+		}
 		return nil, false
 	}
 
-	c.Delete(key)
-
+	c.delete(key)
+	c.items.mu.Unlock()
 	return elem, true
 }
 
