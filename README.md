@@ -1,4 +1,4 @@
-[#](#) TTLCache - an in-memory cache with item expiration
+# TTLCache - an in-memory cache with item expiration and generics
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jellydator/ttlcache/v3.svg)](https://pkg.go.dev/github.com/jellydator/ttlcache/v3)
 [![Build Status](https://github.com/jellydator/ttlcache/actions/workflows/go.yml/badge.svg)](https://github.com/jellydator/ttlcache/actions/workflows/go.yml)
@@ -6,15 +6,14 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/jellydator/ttlcache/v3)](https://goreportcard.com/report/github.com/jellydator/ttlcache/v3)
 
 ## Features
-- Simple API.
-- Type parameters.
-- Item expiration and automatic deletion.
-- Automatic expiration time extension on each `Get` call.
-- `Loader` interface that is used to load/lazily initialize missing cache 
-items.
-- Subscription to cache events (insertion and eviction).
-- Metrics.
-- Configurability.
+- Simple API
+- Type parameters
+- Item expiration and automatic deletion
+- Automatic expiration time extension on each `Get` call
+- `Loader` interface that may be used to load/lazily initialize missing cache 
+items
+- Event handlers (insertion and eviction)
+- Metrics
 
 ## Installation
 ```

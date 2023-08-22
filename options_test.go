@@ -46,10 +46,10 @@ func Test_WithVersion(t *testing.T) {
 	var opts options[string, string]
 
 	WithVersion[string, string](true).apply(&opts)
-	assert.Equal(t, true, opts.enableVersionTrack)
+	assert.Equal(t, true, opts.enableVersionTracking)
 
 	WithVersion[string, string](false).apply(&opts)
-	assert.Equal(t, false, opts.enableVersionTrack)
+	assert.Equal(t, false, opts.enableVersionTracking)
 }
 
 func Test_WithLoader(t *testing.T) {

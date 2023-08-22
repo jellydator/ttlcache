@@ -14,16 +14,15 @@ func Test_newItem(t *testing.T) {
 	assert.Equal(t, "key", item.key)
 	assert.Equal(t, 123, item.value)
 	assert.Equal(t, time.Hour, item.ttl)
-	assert.Equal(t, false, item.enableVersionTrack)
 	assert.Equal(t, int64(-1), item.version)
 	assert.WithinDuration(t, time.Now().Add(time.Hour), item.expiresAt, time.Minute)
 }
 
 func Test_Item_update(t *testing.T) {
 	item := Item[string, string]{
-		expiresAt:          time.Now().Add(-time.Hour),
-		value:              "hello",
-		enableVersionTrack: true,
+		expiresAt: time.Now().Add(-time.Hour),
+		value:     "hello",
+		version:   0,
 	}
 
 	item.update("test", time.Hour)

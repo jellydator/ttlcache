@@ -796,6 +796,18 @@ func Test_Cache_Items(t *testing.T) {
 	assert.Equal(t, "3", items["3"].key)
 }
 
+func Test_Cache_Range(t *testing.T) {
+	c := prepCache(DefaultTTL, "1", "2", "3", "4", "5")
+	var results []string
+
+	c.Range(func(item *Item[string, string]) bool {
+		results = append(results, item.Key())
+		return item.Key() != "4"
+	})
+
+	assert.Equal(t, []string{"5", "4"}, results)
+}
+
 func Test_Cache_Metrics(t *testing.T) {
 	cache := Cache[string, string]{
 		metrics: Metrics{Evictions: 10},
@@ -1016,18 +1028,6 @@ func Test_Cache_OnEviction(t *testing.T) {
 
 	assert.Empty(t, cache.events.eviction.fns)
 	assert.NotContains(t, cache.events.eviction.fns, uint64(1))
-}
-
-func Test_Cache_Range(t *testing.T) {
-	c := prepCache(DefaultTTL, "1", "2", "3", "4", "5")
-	var results []string
-
-	c.Range(func(item *Item[string, string]) bool {
-		results = append(results, item.Key())
-		return item.Key() != "4"
-	})
-
-	assert.Equal(t, []string{"5", "4"}, results)
 }
 
 func Test_LoaderFunc_Load(t *testing.T) {
