@@ -655,6 +655,30 @@ func Test_Cache_GetOrSet(t *testing.T) {
 	assert.False(t, retrieved)
 }
 
+func Test_Cache_GetOrSetFunc(t *testing.T) {
+	cache := prepCache(time.Hour)
+	item, retrieved := cache.GetOrSetFunc("test", func() string { return "1" }, WithTTL[string, string](time.Minute))
+	require.NotNil(t, item)
+	assert.Same(t, item, cache.items.values["test"].Value)
+	assert.False(t, retrieved)
+
+	item, retrieved = cache.GetOrSetFunc("test", func() string { return "1" }, WithTTL[string, string](time.Minute))
+	require.NotNil(t, item)
+	assert.Same(t, item, cache.items.values["test"].Value)
+	assert.True(t, retrieved)
+
+	item, retrieved = cache.GetOrSetFunc("test2", func() string { return "1" }, WithTTL[string, string](time.Microsecond))
+	require.NotNil(t, item)
+	assert.Same(t, item, cache.items.values["test2"].Value)
+	assert.False(t, retrieved)
+
+	time.Sleep(time.Millisecond)
+	item, retrieved = cache.GetOrSetFunc("test2", func() string { return "2" }, WithTTL[string, string](time.Minute))
+	require.NotNil(t, item)
+	assert.Same(t, item, cache.items.values["test2"].Value)
+	assert.False(t, retrieved)
+}
+
 func Test_Cache_GetAndDelete(t *testing.T) {
 	cache := prepCache(time.Hour, "test1", "test2", "test3")
 	listItem := cache.items.lru.Front()
