@@ -492,6 +492,29 @@ func (c *Cache[K, V]) Range(fn func(item *Item[K, V]) bool) {
 	}
 }
 
+// ModifyOrSetFunc either creates a new item from the provided key and return value
+// of the setFunc argument, or if the key is already present, the value is set to
+// to the return value of the provided modifyFunc.
+// Note: As the setFunc is not called until it has been confirmed there is no item already in the
+// cache, allocations inside this fuction will not happen unless needed, making this a useful fuction
+// when working with pre allocated slices.
+// The item is returned as well as a bool indicating if the item was modified instead of set.
+// DefaultTTL constant or 0 can be used to indicate that the item should use
+// the default/global TTL that was specified when the cache instance was
+// created.
+func (c *Cache[K, V]) ModifyOrSetFunc(key K, modifyFunc func(value V) V, setFunc func() V, ttl time.Duration) (item *Item[K, V], modified bool) {
+	c.items.mu.Lock()
+	defer c.items.mu.Unlock()
+
+	elem := c.get(key, false)
+	if elem != nil {
+		item := elem.Value.(*Item[K, V])
+		return c.set(key, modifyFunc(item.value), ttl), true
+	}
+
+	return c.set(key, setFunc(), ttl), false
+}
+
 // Metrics returns the metrics of the cache.
 func (c *Cache[K, V]) Metrics() Metrics {
 	c.metricsMu.RLock()

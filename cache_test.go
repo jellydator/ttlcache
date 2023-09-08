@@ -655,6 +655,52 @@ func Test_Cache_GetOrSet(t *testing.T) {
 	assert.False(t, retrieved)
 }
 
+func Test_Cache_ModifyOrSetFunc(t *testing.T) {
+	cache := prepCache(time.Hour)
+
+	t.Run("Modification Logic", func(t *testing.T) {
+		const (
+			key = "test1"
+		)
+		item, modified := cache.ModifyOrSetFunc(key, func(value string) string {
+			return "1_modified"
+		}, func() string { return "1" }, time.Minute)
+		require.NotNil(t, item)
+		assert.Same(t, item, cache.items.values[key].Value)
+		assert.Equal(t, item.Value(), "1")
+		assert.False(t, modified)
+
+		item, modified = cache.ModifyOrSetFunc(key, func(value string) string {
+			return "1_modified"
+		}, func() string { return "1" }, time.Minute)
+		require.NotNil(t, item)
+		assert.Same(t, item, cache.items.values[key].Value)
+		assert.Equal(t, item.Value(), "1_modified")
+		assert.True(t, modified)
+	})
+
+	t.Run("TTL is honoured", func(t *testing.T) {
+		const (
+			key = "test2"
+		)
+		item, modified := cache.ModifyOrSetFunc(key, func(value string) string {
+			return "1_modified"
+		}, func() string { return "1" }, time.Microsecond)
+		require.NotNil(t, item)
+		assert.Same(t, item, cache.items.values[key].Value)
+		assert.False(t, modified)
+
+		time.Sleep(time.Millisecond)
+
+		item, modified = cache.ModifyOrSetFunc(key, func(value string) string {
+			return "2_modified"
+		}, func() string { return "2" }, time.Minute)
+		require.NotNil(t, item)
+		assert.Same(t, item, cache.items.values[key].Value)
+		assert.False(t, modified)
+	})
+}
+
 func Test_Cache_GetAndDelete(t *testing.T) {
 	cache := prepCache(time.Hour, "test1", "test2", "test3")
 	listItem := cache.items.lru.Front()
