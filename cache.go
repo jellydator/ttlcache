@@ -481,6 +481,7 @@ func (c *Cache[K, V]) Range(fn func(item *Item[K, V]) bool) {
 
 	// Check if cache is empty
 	if c.items.lru.Len() == 0 {
+		c.items.mu.RUnlock()
 		return
 	}
 
