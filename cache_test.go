@@ -806,6 +806,13 @@ func Test_Cache_Range(t *testing.T) {
 	})
 
 	assert.Equal(t, []string{"5", "4"}, results)
+
+	emptyCache := New[string, string]()
+	assert.NotPanics(t, func() {
+		emptyCache.Range(func(item *Item[string, string]) bool {
+			return false
+		})
+	})
 }
 
 func Test_Cache_Metrics(t *testing.T) {
