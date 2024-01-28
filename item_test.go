@@ -31,10 +31,16 @@ func Test_Item_update(t *testing.T) {
 	assert.Equal(t, int64(1), item.version)
 	assert.WithinDuration(t, time.Now().Add(time.Hour), item.expiresAt, time.Minute)
 
+	item.update("previous ttl", PreviousTTL)
+	assert.Equal(t, "previous ttl", item.value)
+	assert.Equal(t, time.Hour, item.ttl)
+	assert.Equal(t, int64(2), item.version)
+	assert.WithinDuration(t, time.Now().Add(time.Hour), item.expiresAt, time.Minute)
+
 	item.update("hi", NoTTL)
 	assert.Equal(t, "hi", item.value)
 	assert.Equal(t, NoTTL, item.ttl)
-	assert.Equal(t, int64(2), item.version)
+	assert.Equal(t, int64(3), item.version)
 	assert.Zero(t, item.expiresAt)
 }
 

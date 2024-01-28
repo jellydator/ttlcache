@@ -9,6 +9,10 @@ const (
 	// NoTTL indicates that an item should never expire.
 	NoTTL time.Duration = -1
 
+	// PreviousTTL indicates that existing TTL of item should be used
+	// default TTL will be used as fallback if item doesn't exist
+	PreviousTTL time.Duration = -2
+
 	// DefaultTTL indicates that the default TTL value of the cache
 	// instance should be used.
 	DefaultTTL time.Duration = 0
@@ -58,17 +62,23 @@ func (item *Item[K, V]) update(value V, ttl time.Duration) {
 	defer item.mu.Unlock()
 
 	item.value = value
+
+	// update version if enabled
+	if item.version > -1 {
+		item.version++
+	}
+
+	// no need to update ttl or expiry in this case
+	if ttl == PreviousTTL {
+		return
+	}
+
 	item.ttl = ttl
 
 	// reset expiration timestamp because the new TTL may be
 	// 0 or below
 	item.expiresAt = time.Time{}
 	item.touchUnsafe()
-
-	// update version if enabled
-	if item.version > -1 {
-		item.version++
-	}
 }
 
 // touch updates the item's expiration timestamp.
