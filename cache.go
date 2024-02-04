@@ -148,7 +148,7 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 		c.evict(EvictionReasonCapacityReached, c.items.lru.Back())
 	}
 
-	if ttl == PreviousTTL {
+	if ttl == PreviousOrDefaultTTL {
 		ttl = c.options.ttl
 	}
 

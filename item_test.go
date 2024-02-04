@@ -31,7 +31,7 @@ func Test_Item_update(t *testing.T) {
 	assert.Equal(t, int64(1), item.version)
 	assert.WithinDuration(t, time.Now().Add(time.Hour), item.expiresAt, time.Minute)
 
-	item.update("previous ttl", PreviousTTL)
+	item.update("previous ttl", PreviousOrDefaultTTL)
 	assert.Equal(t, "previous ttl", item.value)
 	assert.Equal(t, time.Hour, item.ttl)
 	assert.Equal(t, int64(2), item.version)

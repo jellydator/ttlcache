@@ -9,9 +9,9 @@ const (
 	// NoTTL indicates that an item should never expire.
 	NoTTL time.Duration = -1
 
-	// PreviousTTL indicates that existing TTL of item should be used
+	// PreviousOrDefaultTTL indicates that existing TTL of item should be used
 	// default TTL will be used as fallback if item doesn't exist
-	PreviousTTL time.Duration = -2
+	PreviousOrDefaultTTL time.Duration = -2
 
 	// DefaultTTL indicates that the default TTL value of the cache
 	// instance should be used.
@@ -69,7 +69,7 @@ func (item *Item[K, V]) update(value V, ttl time.Duration) {
 	}
 
 	// no need to update ttl or expiry in this case
-	if ttl == PreviousTTL {
+	if ttl == PreviousOrDefaultTTL {
 		return
 	}
 
