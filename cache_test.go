@@ -189,6 +189,10 @@ func Test_Cache_set(t *testing.T) {
 			Key: existingKey,
 			TTL: DefaultTTL,
 		},
+		"Set with existing key and PreviousOrDefaultTTL": {
+			Key: existingKey,
+			TTL: PreviousOrDefaultTTL,
+		},
 		"Set with new key and eviction caused by small capacity": {
 			Capacity: 3,
 			Key:      newKey,
@@ -232,6 +236,14 @@ func Test_Cache_set(t *testing.T) {
 			},
 			ExpectFns: true,
 		},
+		"Set with new key and PreviousOrDefaultTTL": {
+			Key: newKey,
+			TTL: PreviousOrDefaultTTL,
+			Metrics: Metrics{
+				Insertions: 1,
+			},
+			ExpectFns: true,
+		},
 	}
 
 	for cn, c := range cc {
@@ -244,6 +256,9 @@ func Test_Cache_set(t *testing.T) {
 				insertFnsCalls   int
 				evictionFnsCalls int
 			)
+
+			// calculated based on how addToCache sets ttl
+			existingKeyTTL := time.Hour + time.Minute
 
 			cache := prepCache(time.Hour, evictedKey, existingKey, "test3")
 			cache.options.capacity = c.Capacity
@@ -295,6 +310,13 @@ func Test_Cache_set(t *testing.T) {
 				assert.Equal(t, c.TTL, item.ttl)
 				assert.WithinDuration(t, time.Now(), item.expiresAt, c.TTL)
 				assert.Equal(t, c.Key, cache.items.expQueue[0].Value.(*Item[string, string]).key)
+			case c.TTL == PreviousOrDefaultTTL:
+				expectedTTL := cache.options.ttl
+				if c.Key == existingKey {
+					expectedTTL = existingKeyTTL
+				}
+				assert.Equal(t, expectedTTL, item.ttl)
+				assert.WithinDuration(t, time.Now(), item.expiresAt, expectedTTL)
 			default:
 				assert.Equal(t, c.TTL, item.ttl)
 				assert.Zero(t, item.expiresAt)
