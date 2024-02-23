@@ -404,7 +404,7 @@ func Test_Cache_get(t *testing.T) {
 				oldItem.ttl = 0
 			}
 
-			elem := cache.get(c.Key, c.Touch)
+			elem := cache.get(c.Key, c.Touch, false)
 
 			if c.Key == notFoundKey {
 				assert.Nil(t, elem)
