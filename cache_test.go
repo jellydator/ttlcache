@@ -324,6 +324,36 @@ func Test_Cache_set(t *testing.T) {
 			}
 		})
 	}
+
+	// finally, test proper expiration queue handling on expired item update.
+	// recreate situation when expired item gets updated
+	// and not auto-cleaned up yet.
+	c := New[string, struct{}](
+		WithDisableTouchOnHit[string,struct{}](),
+	)
+
+	// insert an item and let it expire
+	c.Set("test", struct{}{}, 1)
+	time.Sleep(50*time.Millisecond)
+
+	// update the expired item
+	updatedItem := c.Set("test", struct{}{}, 100*time.Millisecond)
+
+	// eviction should not happen as we prolonged element
+	cl := c.OnEviction(func(_ context.Context, _ EvictionReason, item *Item[string, struct{}]){
+		t.Errorf("eviction happened even though item has not expired yet: key=%s, evicted item expiresAt=%s, updated item expiresAt=%s, now=%s",
+			item.Key(),
+			item.ExpiresAt().String(),
+			updatedItem.ExpiresAt().String(),
+			time.Now().String())
+	})
+	// start of automatic cleanup process is delayed to allow update win the race
+	// and update expired before its removal
+	go c.Start()
+
+	time.Sleep(90*time.Millisecond)
+	cl()
+	c.Stop()
 }
 
 func Test_Cache_get(t *testing.T) {
