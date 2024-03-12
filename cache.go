@@ -133,7 +133,7 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 		ttl = c.options.ttl
 	}
 
-	elem := c.get(key, false)
+	elem := c.get(key, false, true)
 	if elem != nil {
 		// update/overwrite an existing item
 		item := elem.Value.(*Item[K, V])
@@ -176,14 +176,14 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 // It returns nil if the item is not found or is expired.
 // Not safe for concurrent use by multiple goroutines without additional
 // locking.
-func (c *Cache[K, V]) get(key K, touch bool) *list.Element {
+func (c *Cache[K, V]) get(key K, touch bool, includeExpired bool) *list.Element {
 	elem := c.items.values[key]
 	if elem == nil {
 		return nil
 	}
 
 	item := elem.Value.(*Item[K, V])
-	if item.isExpiredUnsafe() {
+	if !includeExpired && item.isExpiredUnsafe() {
 		return nil
 	}
 
@@ -218,7 +218,7 @@ func (c *Cache[K, V]) getWithOpts(key K, lockAndLoad bool, opts ...Option[K, V])
 		c.items.mu.Lock()
 	}
 
-	elem := c.get(key, !getOpts.disableTouchOnHit)
+	elem := c.get(key, !getOpts.disableTouchOnHit, false)
 
 	if lockAndLoad {
 		c.items.mu.Unlock()
@@ -436,7 +436,7 @@ func (c *Cache[K, V]) DeleteExpired() {
 // If the item is not found, the method is no-op.
 func (c *Cache[K, V]) Touch(key K) {
 	c.items.mu.Lock()
-	c.get(key, true)
+	c.get(key, true, false)
 	c.items.mu.Unlock()
 }
 
@@ -469,7 +469,7 @@ func (c *Cache[K, V]) Items() map[K]*Item[K, V] {
 
 	items := make(map[K]*Item[K, V], len(c.items.values))
 	for k := range c.items.values {
-		item := c.get(k, false)
+		item := c.get(k, false, false)
 		if item != nil {
 			items[k] = item.Value.(*Item[K, V])
 		}
