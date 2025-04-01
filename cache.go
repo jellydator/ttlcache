@@ -71,7 +71,7 @@ func New[K comparable, V any](opts ...Option[K, V]) *Cache[K, V] {
 	c.events.insertion.fns = make(map[uint64]func(*Item[K, V]))
 	c.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[K, V]))
 
-	applyOptions(&c.options, opts...)
+	c.options = applyOptions(c.options, opts...)
 
 	return c
 }
@@ -233,7 +233,7 @@ func (c *Cache[K, V]) getWithOpts(key K, lockAndLoad bool, opts ...Option[K, V])
 		disableTouchOnHit: c.options.disableTouchOnHit,
 	}
 
-	applyOptions(&getOpts, opts...)
+	getOpts = applyOptions(getOpts, opts...)
 
 	if lockAndLoad {
 		c.items.mu.Lock()
@@ -388,7 +388,7 @@ func (c *Cache[K, V]) GetOrSet(key K, value V, opts ...Option[K, V]) (*Item[K, V
 	setOpts := options[K, V]{
 		ttl: c.options.ttl,
 	}
-	applyOptions(&setOpts, opts...) // used only to update the TTL
+	setOpts = applyOptions(setOpts, opts...) // used only to update the TTL
 
 	item := c.set(key, value, setOpts.ttl)
 
@@ -438,7 +438,7 @@ func (c *Cache[K, V]) GetAndDelete(key K, opts ...Option[K, V]) (*Item[K, V], bo
 		getOpts := options[K, V]{
 			loader: c.options.loader,
 		}
-		applyOptions(&getOpts, opts...) // used only to update the loader
+		getOpts = applyOptions(getOpts, opts...) // used only to update the loader
 
 		if getOpts.loader != nil {
 			item := getOpts.loader.Load(c, key)

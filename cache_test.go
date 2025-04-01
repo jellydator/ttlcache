@@ -529,11 +529,12 @@ func Test_Cache_Set(t *testing.T) {
 func Test_Cache_Get(t *testing.T) {
 	const notFoundKey, foundKey = "notfound", "test1"
 	cc := map[string]struct {
-		Key            string
-		DefaultOptions options[string, string]
-		CallOptions    []Option[string, string]
-		Metrics        Metrics
-		Result         *Item[string, string]
+		Key                         string
+		DefaultOptions              options[string, string]
+		CallOptions                 []Option[string, string]
+		Metrics                     Metrics
+		Result                      *Item[string, string]
+		ExpectedNumberOfAllocations int
 	}{
 		"Get without loader when item is not found": {
 			Key: notFoundKey,
@@ -551,7 +552,8 @@ func Test_Cache_Get(t *testing.T) {
 			Metrics: Metrics{
 				Misses: 1,
 			},
-			Result: &Item[string, string]{key: "test"},
+			Result:                      &Item[string, string]{key: "test"},
+			ExpectedNumberOfAllocations: 1, // The loader function returns a heap allocated item. If this item was pre-allocated, the number of allocations would be 0.
 		},
 		"Get with default loader that returns nil value when item is not found": {
 			Key: notFoundKey,
@@ -579,7 +581,8 @@ func Test_Cache_Get(t *testing.T) {
 			Metrics: Metrics{
 				Misses: 1,
 			},
-			Result: &Item[string, string]{key: "hello"},
+			Result:                      &Item[string, string]{key: "hello"},
+			ExpectedNumberOfAllocations: 1, // The loader function returns a heap allocated item. If this item was pre-allocated, the number of allocations would be 0.
 		},
 		"Get with call loader that returns nil value when item is not found": {
 			Key: notFoundKey,
@@ -633,7 +636,10 @@ func Test_Cache_Get(t *testing.T) {
 			oldExpiresAt := cache.items.values[foundKey].Value.(*Item[string, string]).expiresAt
 			cache.options = c.DefaultOptions
 
-			res := cache.Get(c.Key, c.CallOptions...)
+			var res *Item[string, string]
+			assert.Equal(t, c.ExpectedNumberOfAllocations, allocsPerSingleRun(func() {
+				res = cache.Get(c.Key, c.CallOptions...)
+			}))
 
 			if c.Key == foundKey {
 				c.Result = cache.items.values[foundKey].Value.(*Item[string, string])
@@ -646,7 +652,7 @@ func Test_Cache_Get(t *testing.T) {
 				return
 			}
 
-			applyOptions(&c.DefaultOptions, c.CallOptions...)
+			c.DefaultOptions = applyOptions(c.DefaultOptions, c.CallOptions...)
 
 			if c.DefaultOptions.disableTouchOnHit {
 				assert.Equal(t, oldExpiresAt, res.expiresAt)
@@ -1301,4 +1307,18 @@ func addToCache(c *Cache[string, string], ttl time.Duration, keys ...string) {
 			c.cost += item.cost
 		}
 	}
+}
+
+func allocsPerSingleRun(f func()) int {
+	// `testing.AllocsPerRun` "warms up" the function for a single run before
+	// measuring allocations, so we need to do nothing on the first run.
+	var firstRun bool
+
+	return int(testing.AllocsPerRun(1, func() {
+		if !firstRun {
+			firstRun = true
+			return
+		}
+		f()
+	}))
 }
