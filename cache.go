@@ -414,7 +414,7 @@ func (c *Cache[K, V]) GetOrSetFunc(key K, fn func() V, opts ...Option[K, V]) (*I
 	setOpts := options[K, V]{
 		ttl: c.options.ttl,
 	}
-	applyOptions(&setOpts, opts...) // used only to update the TTL
+	applyOptions(setOpts, opts...) // used only to update the TTL
 
 	item := c.set(key, fn(), setOpts.ttl)
 
