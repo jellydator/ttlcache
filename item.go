@@ -30,28 +30,38 @@ type Item[K comparable, V any] struct {
 	// well, so locking this mutex would be redundant.
 	// In other words, this mutex is only useful when these fields
 	// are being read from the outside (e.g. in event functions).
-	mu         sync.RWMutex
-	key        K
-	value      V
-	ttl        time.Duration
-	expiresAt  time.Time
-	queueIndex int
-	version    int64
+	mu            sync.RWMutex
+	key           K
+	value         V
+	ttl           time.Duration
+	expiresAt     time.Time
+	queueIndex    int
+	version       int64
+	calculateCost CostFunc[K, V]
+	cost          uint64
 }
 
-// newItem creates a new cache item.
-func newItem[K comparable, V any](key K, value V, ttl time.Duration, enableVersionTracking bool) *Item[K, V] {
+// NewItem creates a new cache item.
+func NewItem[K comparable, V any](key K, value V, ttl time.Duration, enableVersionTracking bool) *Item[K, V] {
+	return newItemWithOpts(key, value, ttl, withVersionTracking[K, V](enableVersionTracking))
+}
+
+// newItemWithOpts creates a new cache item.
+func newItemWithOpts[K comparable, V any](key K, value V, ttl time.Duration, opts ...itemOption[K, V]) *Item[K, V] {
 	item := &Item[K, V]{
-		key:   key,
-		value: value,
-		ttl:   ttl,
+		key:           key,
+		value:         value,
+		ttl:           ttl,
+		version:       -1,
+		calculateCost: func(item *Item[K, V]) uint64 { return 0 },
 	}
 
-	if !enableVersionTracking {
-		item.version = -1
+	for _, opt := range opts {
+		opt.apply(item)
 	}
 
 	item.touch()
+	item.cost = item.calculateCost(item)
 
 	return item
 }
@@ -62,6 +72,7 @@ func (item *Item[K, V]) update(value V, ttl time.Duration) {
 	defer item.mu.Unlock()
 
 	item.value = value
+	item.cost = item.calculateCost(item)
 
 	// update version if enabled
 	if item.version > -1 {
