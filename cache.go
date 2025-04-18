@@ -293,13 +293,15 @@ func (c *Cache[K, V]) evict(reason EvictionReason, elems ...*list.Element) {
 // The method is no-op if the item is not found.
 // Not safe for concurrent use by multiple goroutines without additional
 // locking.
-func (c *Cache[K, V]) delete(key K, version *int64) {
+func (c *Cache[K, V]) delete(key K, version *int64) bool {
 	elem := c.items.values[key]
 	if elem == nil || (version != nil && elem.Value.(*Item[K, V]).version != *version) {
-		return
+		return false
 	}
 
 	c.evict(EvictionReasonDeleted, elem)
+
+	return true
 }
 
 // Set creates a new item from the provided key and value, adds
@@ -339,11 +341,12 @@ func (c *Cache[K, V]) Delete(key K) {
 // item associated with the key is not found, the method is no-op.
 // In order to use this method and item versions, the cache
 // should be initialized using the WithVersion option.
-func (c *Cache[K, V]) OptimisticDelete(key K, version int64) {
+// The return value indicates whether the item was matched and deleted.
+func (c *Cache[K, V]) OptimisticDelete(key K, version int64) bool {
 	c.items.mu.Lock()
 	defer c.items.mu.Unlock()
 
-	c.delete(key, &version)
+	return c.delete(key, &version)
 }
 
 // Has checks whether the key exists in the cache.

@@ -632,18 +632,18 @@ func Test_Cache_OptimisticDelete(t *testing.T) {
 	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
 
 	// not found
-	cache.OptimisticDelete("1234", 0)
+	assert.False(t, cache.OptimisticDelete("1234", 0))
 	assert.Zero(t, fnsCalls)
 	assert.Len(t, cache.items.values, 4)
 
 	// invalid version
-	cache.OptimisticDelete("1", 1)
+	assert.False(t, cache.OptimisticDelete("1", 1))
 	assert.Zero(t, fnsCalls)
 	assert.Len(t, cache.items.values, 4)
 	assert.Contains(t, cache.items.values, "1")
 
 	// success
-	cache.OptimisticDelete("1", 0)
+	assert.True(t, cache.OptimisticDelete("1", 0))
 	assert.Equal(t, 2, fnsCalls)
 	assert.Len(t, cache.items.values, 3)
 	assert.NotContains(t, cache.items.values, "1")
