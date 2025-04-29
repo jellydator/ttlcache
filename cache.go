@@ -377,22 +377,13 @@ func (c *Cache[K, V]) Has(key K) bool {
 // If the loader is non-nil (i.e., used as an option or specified when
 // creating the cache instance), its execution is skipped.
 func (c *Cache[K, V]) GetOrSet(key K, value V, opts ...Option[K, V]) (*Item[K, V], bool) {
-	c.items.mu.Lock()
-	defer c.items.mu.Unlock()
-
-	elem := c.getWithOpts(key, false, opts...)
-	if elem != nil {
-		return elem, true
-	}
-
-	setOpts := options[K, V]{
-		ttl: c.options.ttl,
-	}
-	setOpts = applyOptions(setOpts, opts...) // used only to update the TTL
-
-	item := c.set(key, value, setOpts.ttl)
-
-	return item, false
+	return c.GetOrSetFunc(
+		key,
+		func() V {
+			return value
+		},
+		opts...,
+	)
 }
 
 // GetOrSetFunc retrieves an item from the cache by the provided key.
