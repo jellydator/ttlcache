@@ -377,6 +377,23 @@ func (c *Cache[K, V]) Has(key K) bool {
 // If the loader is non-nil (i.e., used as an option or specified when
 // creating the cache instance), its execution is skipped.
 func (c *Cache[K, V]) GetOrSet(key K, value V, opts ...Option[K, V]) (*Item[K, V], bool) {
+	return c.GetOrSetFunc(
+		key,
+		func() V {
+			return value
+		},
+		opts...,
+	)
+}
+
+// GetOrSetFunc retrieves an item from the cache by the provided key.
+// If the element is not found, it is created by executing the fn function
+// with the provided options and then returned.
+// The bool return value is true if the item was found, false if created
+// during the execution of the method.
+// If the loader is non-nil (i.e., used as an option or specified when
+// creating the cache instance), its execution is skipped.
+func (c *Cache[K, V]) GetOrSetFunc(key K, fn func() V, opts ...Option[K, V]) (*Item[K, V], bool) {
 	c.items.mu.Lock()
 	defer c.items.mu.Unlock()
 
@@ -390,7 +407,7 @@ func (c *Cache[K, V]) GetOrSet(key K, value V, opts ...Option[K, V]) (*Item[K, V
 	}
 	setOpts = applyOptions(setOpts, opts...) // used only to update the TTL
 
-	item := c.set(key, value, setOpts.ttl)
+	item := c.set(key, fn(), setOpts.ttl)
 
 	return item, false
 }
