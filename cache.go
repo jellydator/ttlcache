@@ -319,13 +319,15 @@ func (c *Cache[K, V]) evict(reason EvictionReason, elems ...*list.Element) {
 // The method is no-op if the item is not found.
 // Not safe for concurrent use by multiple goroutines without additional
 // locking.
-func (c *Cache[K, V]) delete(key K) {
+func (c *Cache[K, V]) delete(key K, version *int64) bool {
 	elem := c.items.values[key]
-	if elem == nil {
-		return
+	if elem == nil || (version != nil && elem.Value.(*Item[K, V]).version != *version) {
+		return false
 	}
 
 	c.evict(EvictionReasonDeleted, elem)
+
+	return true
 }
 
 // Set creates a new item from the provided key and value, adds
@@ -357,7 +359,20 @@ func (c *Cache[K, V]) Delete(key K) {
 	c.items.mu.Lock()
 	defer c.items.mu.Unlock()
 
-	c.delete(key)
+	c.delete(key, nil)
+}
+
+// OptimisticDelete deletes an item from the cache if the
+// provided version matches with the item version. If the
+// item associated with the key is not found, the method is no-op.
+// In order to use this method and item versions, the cache
+// should be initialized using the WithVersion option.
+// The return value indicates whether the item was matched and deleted.
+func (c *Cache[K, V]) OptimisticDelete(key K, version int64) bool {
+	c.items.mu.Lock()
+	defer c.items.mu.Unlock()
+
+	return c.delete(key, &version)
 }
 
 // Has checks whether the key exists in the cache.
@@ -439,7 +454,7 @@ func (c *Cache[K, V]) GetAndDelete(key K, opts ...Option[K, V]) (*Item[K, V], bo
 		return nil, false
 	}
 
-	c.delete(key)
+	c.delete(key, nil)
 	c.items.mu.Unlock()
 
 	return elem, true

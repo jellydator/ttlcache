@@ -19,7 +19,7 @@ func TestMain(m *testing.M) {
 }
 
 func Test_New(t *testing.T) {
-	c := New[string, string](
+	c := New(
 		WithTTL[string, string](time.Hour),
 		WithCapacity[string, string](1),
 	)
@@ -687,6 +687,34 @@ func Test_Cache_Delete(t *testing.T) {
 	assert.NotContains(t, cache.items.values, "1")
 }
 
+func Test_Cache_OptimisticDelete(t *testing.T) {
+	var fnsCalls int
+
+	cache := prepCache(0, time.Hour, "1", "2", "3", "4")
+	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
+		assert.Equal(t, EvictionReasonDeleted, r)
+		fnsCalls++
+	}
+	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
+
+	// not found
+	assert.False(t, cache.OptimisticDelete("1234", 0))
+	assert.Zero(t, fnsCalls)
+	assert.Len(t, cache.items.values, 4)
+
+	// invalid version
+	assert.False(t, cache.OptimisticDelete("1", 1))
+	assert.Zero(t, fnsCalls)
+	assert.Len(t, cache.items.values, 4)
+	assert.Contains(t, cache.items.values, "1")
+
+	// success
+	assert.True(t, cache.OptimisticDelete("1", 0))
+	assert.Equal(t, 2, fnsCalls)
+	assert.Len(t, cache.items.values, 3)
+	assert.NotContains(t, cache.items.values, "1")
+}
+
 func Test_Cache_Has(t *testing.T) {
 	cache := prepCache(0, time.Hour, "1")
 	addToCache(cache, time.Nanosecond, "2")
@@ -1299,15 +1327,19 @@ func Test_SuppressedLoader_Load(t *testing.T) {
 func prepCache(maxCost uint64, ttl time.Duration, keys ...string) *Cache[string, string] {
 	c := &Cache[string, string]{}
 	c.options.ttl = ttl
-	c.options.itemOpts = append(c.options.itemOpts,
-		withVersionTracking[string, string](false))
+	c.options.itemOpts = append(
+		c.options.itemOpts,
+		withVersionTracking[string, string](true),
+	)
 
 	if maxCost != 0 {
 		c.options.maxCost = maxCost
-		c.options.itemOpts = append(c.options.itemOpts,
-			withCostFunc[string, string](func(item *Item[string, string]) uint64 {
+		c.options.itemOpts = append(
+			c.options.itemOpts,
+			withCostFunc(func(item *Item[string, string]) uint64 {
 				return uint64(len(item.value))
-			}))
+			}),
+		)
 	}
 
 	c.items.values = make(map[string]*list.Element)
