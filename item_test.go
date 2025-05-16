@@ -152,7 +152,7 @@ func Test_Item_update(t *testing.T) {
 			uc: "with version calculation and version tracking",
 			opts: []itemOption[string, string]{
 				withVersionTracking[string, string](true),
-				withCostFunc[string, string](func(item *Item[string, string]) uint64 { return uint64(len(item.value)) }),
+				withCostFunc[string, string](func(item *Item[string, string]) uint64 { return uint64(len(item.Value())) }),
 			},
 			ttl: time.Hour,
 			assert: func(t *testing.T, item *Item[string, string]) {
