@@ -39,6 +39,7 @@ type Item[K comparable, V any] struct {
 	version       int64
 	calculateCost CostFunc[K, V]
 	cost          uint64
+	inUpdate      bool
 }
 
 // NewItem creates a new cache item.
@@ -72,7 +73,10 @@ func (item *Item[K, V]) update(value V, ttl time.Duration) {
 	defer item.mu.Unlock()
 
 	item.value = value
+
+	item.inUpdate = true
 	item.cost = item.calculateCost(item)
+	item.inUpdate = false
 
 	// update version if enabled
 	if item.version > -1 {
@@ -113,8 +117,10 @@ func (item *Item[K, V]) touchUnsafe() {
 // IsExpired returns a bool value that indicates whether the item
 // is expired.
 func (item *Item[K, V]) IsExpired() bool {
-	item.mu.RLock()
-	defer item.mu.RUnlock()
+	if !item.inUpdate {
+		item.mu.RLock()
+		defer item.mu.RUnlock()
+	}
 
 	return item.isExpiredUnsafe()
 }
@@ -131,32 +137,40 @@ func (item *Item[K, V]) isExpiredUnsafe() bool {
 
 // Key returns the key of the item.
 func (item *Item[K, V]) Key() K {
-	item.mu.RLock()
-	defer item.mu.RUnlock()
+	if !item.inUpdate {
+		item.mu.RLock()
+		defer item.mu.RUnlock()
+	}
 
 	return item.key
 }
 
 // Value returns the value of the item.
 func (item *Item[K, V]) Value() V {
-	item.mu.RLock()
-	defer item.mu.RUnlock()
+	if !item.inUpdate {
+		item.mu.RLock()
+		defer item.mu.RUnlock()
+	}
 
 	return item.value
 }
 
 // TTL returns the TTL value of the item.
 func (item *Item[K, V]) TTL() time.Duration {
-	item.mu.RLock()
-	defer item.mu.RUnlock()
+	if !item.inUpdate {
+		item.mu.RLock()
+		defer item.mu.RUnlock()
+	}
 
 	return item.ttl
 }
 
 // ExpiresAt returns the expiration timestamp of the item.
 func (item *Item[K, V]) ExpiresAt() time.Time {
-	item.mu.RLock()
-	defer item.mu.RUnlock()
+	if !item.inUpdate {
+		item.mu.RLock()
+		defer item.mu.RUnlock()
+	}
 
 	return item.expiresAt
 }
@@ -165,8 +179,10 @@ func (item *Item[K, V]) ExpiresAt() time.Time {
 // changes made to the item.
 // If version tracking is disabled, the return value is always -1.
 func (item *Item[K, V]) Version() int64 {
-	item.mu.RLock()
-	defer item.mu.RUnlock()
+	if !item.inUpdate {
+		item.mu.RLock()
+		defer item.mu.RUnlock()
+	}
 
 	return item.version
 }
