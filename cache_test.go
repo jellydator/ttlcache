@@ -1032,6 +1032,7 @@ func Test_Cache_Start(t *testing.T) {
 
 	cache.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[string, string]))
 	cache.stopCh = make(chan struct{})
+	cache.stopped = true
 
 	go cache.Start()
 	go cache.Start() // should be no-op
@@ -1041,6 +1042,8 @@ func Test_Cache_Start(t *testing.T) {
 		defer cache.stopMu.Unlock()
 		return !cache.stopped
 	}, time.Second, time.Millisecond*100)
+
+	assert.NotPanics(t, cache.Stop)
 
 }
 
