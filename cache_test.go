@@ -1029,12 +1029,39 @@ func Test_Cache_Start(t *testing.T) {
 	cache.events.eviction.fns[1] = fn
 
 	cache.Start()
+	assert.True(t, cache.stopped) // callback fn stops the cache
+
+	cache.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[string, string]))
+	cache.stopCh = make(chan struct{})
+
+	go cache.Start()
+	go cache.Start() // should be no-op
+
+	assert.Eventually(t, func() bool {
+		cache.stopMu.RLock()
+		defer cache.stopMu.RUnlock()
+		return !cache.stopped
+	}, time.Second, time.Millisecond*100)
+
+	close(cache.stopCh)
+
+	assert.Eventually(t, func() bool {
+		cache.stopMu.RLock()
+		defer cache.stopMu.RUnlock()
+		return cache.stopped
+	}, time.Second, time.Millisecond*100)
+
 }
 
 func Test_Cache_Stop(t *testing.T) {
 	cache := Cache[string, string]{
-		stopCh: make(chan struct{}, 1),
+		stopCh:  make(chan struct{}, 1),
+		stopped: true,
 	}
+	cache.Stop()
+	assert.Len(t, cache.stopCh, 0)
+
+	cache.stopped = false
 	cache.Stop()
 	assert.Len(t, cache.stopCh, 1)
 }
@@ -1333,7 +1360,9 @@ func Test_SuppressedLoader_Load(t *testing.T) {
 }
 
 func prepCache(maxCost uint64, ttl time.Duration, keys ...string) *Cache[string, string] {
-	c := &Cache[string, string]{}
+	c := &Cache[string, string]{
+		stopped: true,
+	}
 	c.options.ttl = ttl
 	c.options.itemOpts = append(c.options.itemOpts,
 		withVersionTracking[string, string](false))
@@ -1341,7 +1370,7 @@ func prepCache(maxCost uint64, ttl time.Duration, keys ...string) *Cache[string,
 	if maxCost != 0 {
 		c.options.maxCost = maxCost
 		c.options.itemOpts = append(c.options.itemOpts,
-			withCostFunc[string, string](func(item *Item[string, string]) uint64 {
+			withCostFunc(func(item *Item[string, string]) uint64 {
 				return uint64(len(item.value))
 			}))
 	}
