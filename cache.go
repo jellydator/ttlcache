@@ -55,14 +55,18 @@ type Cache[K comparable, V any] struct {
 		}
 	}
 
+	stopMu  sync.Mutex
 	stopCh  chan struct{}
+	stopped bool
+
 	options options[K, V]
 }
 
 // New creates a new instance of cache.
 func New[K comparable, V any](opts ...Option[K, V]) *Cache[K, V] {
 	c := &Cache[K, V]{
-		stopCh: make(chan struct{}),
+		stopCh:  make(chan struct{}),
+		stopped: true, // cache cleanup process is stopped by default
 	}
 	c.items.values = make(map[K]*list.Element)
 	c.items.lru = list.New()
@@ -621,6 +625,15 @@ func (c *Cache[K, V]) Metrics() Metrics {
 // expired items.
 // It blocks until Stop is called.
 func (c *Cache[K, V]) Start() {
+	c.stopMu.Lock()
+	if !c.stopped {
+		c.stopMu.Unlock()
+		return
+	}
+
+	c.stopped = false
+	c.stopMu.Unlock()
+
 	waitDur := func() time.Duration {
 		c.items.mu.RLock()
 		defer c.items.mu.RUnlock()
@@ -674,7 +687,16 @@ func (c *Cache[K, V]) Start() {
 // Stop stops the automatic cleanup process.
 // It blocks until the cleanup process exits.
 func (c *Cache[K, V]) Stop() {
+	c.stopMu.Lock()
+	defer c.stopMu.Unlock()
+
+	if c.stopped {
+		return
+	}
+
 	c.stopCh <- struct{}{}
+	c.stopped = true
+
 }
 
 // OnInsertion adds the provided function to be executed when
