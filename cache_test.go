@@ -421,7 +421,7 @@ func Test_Cache_get(t *testing.T) {
 			t.Parallel()
 
 			cache := prepCache(0, time.Hour, existingKey, "test2", "test3")
-			addExpiredToCache(cache, expiredKey)
+			addExpiredCacheItems(cache, expiredKey)
 			time.Sleep(time.Millisecond) // force expiration
 
 			oldItem := cache.items.values[existingKey].Value.(*Item[string, string])
@@ -689,7 +689,7 @@ func Test_Cache_Delete(t *testing.T) {
 
 func Test_Cache_Has(t *testing.T) {
 	cache := prepCache(0, time.Hour, "1")
-	addExpiredToCache(cache, "2")
+	addExpiredCacheItems(cache, "2")
 
 	assert.True(t, cache.Has("1"))
 	assert.False(t, cache.Has("2"))
@@ -832,7 +832,7 @@ func Test_Cache_DeleteExpired(t *testing.T) {
 	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
 
 	// one item
-	addExpiredToCache(cache, "5")
+	addExpiredCacheItems(cache, "5")
 
 	cache.DeleteExpired()
 	assert.Empty(t, cache.items.values)
@@ -846,10 +846,10 @@ func Test_Cache_DeleteExpired(t *testing.T) {
 	assert.Empty(t, cache.items.values)
 
 	// non empty
-	addToCache(cache, time.Hour, "1", "2", "3", "4")
-	addExpiredToCache(cache, "5")
-	addExpiredToCache(cache, "6") // we need multiple calls to avoid adding time.Minute to ttl
-	time.Sleep(time.Millisecond)  // force expiration
+	addTTLCacheItems(cache, time.Hour, "1", "2", "3", "4")
+	addExpiredCacheItems(cache, "5")
+	addExpiredCacheItems(cache, "6") // we need multiple calls to avoid adding time.Minute to ttl
+	time.Sleep(time.Millisecond)     // force expiration
 
 	cache.DeleteExpired()
 	assert.Len(t, cache.items.values, 4)
@@ -865,7 +865,7 @@ func Test_Cache_Touch(t *testing.T) {
 	// NOTE: We must manually set expires at to a shorter period than
 	// TTL so we can test the touch functionality.
 	oldExpiresAt := time.Now().Add(time.Minute * 30)
-	cache.items.values["1"].Value.(*Item[string, string]).expiresAt = time.Now().Add(time.Minute * 30)
+	cache.items.values["1"].Value.(*Item[string, string]).expiresAt = oldExpiresAt
 
 	cache.Touch("1")
 
@@ -878,28 +878,28 @@ func Test_Cache_Len(t *testing.T) {
 	cache := prepCache(0, time.Hour)
 	assert.Equal(t, 0, cache.Len())
 
-	addToCache(cache, time.Hour, "1")
+	addTTLCacheItems(cache, time.Hour, "1")
 	assert.Equal(t, 1, cache.Len())
 
-	addExpiredToCache(cache, "2")
+	addExpiredCacheItems(cache, "2")
 	assert.Equal(t, 1, cache.Len())
 
-	addToCache(cache, time.Hour, "3")
+	addTTLCacheItems(cache, time.Hour, "3")
 	for i := 4; i < 30; i++ {
-		addExpiredToCache(cache, fmt.Sprint(i))
+		addExpiredCacheItems(cache, fmt.Sprint(i))
 	}
 	assert.Equal(t, 2, cache.Len())
 }
 
 func Test_Cache_Keys(t *testing.T) {
 	cache := prepCache(0, time.Hour, "1", "2", "3")
-	addExpiredToCache(cache, "4")
+	addExpiredCacheItems(cache, "4")
 	assert.ElementsMatch(t, []string{"1", "2", "3"}, cache.Keys())
 }
 
 func Test_Cache_Items(t *testing.T) {
 	cache := prepCache(0, time.Hour, "1", "2", "3")
-	addExpiredToCache(cache, "4")
+	addExpiredCacheItems(cache, "4")
 	items := cache.Items()
 	require.Len(t, items, 3)
 
@@ -913,7 +913,7 @@ func Test_Cache_Items(t *testing.T) {
 
 func Test_Cache_Range(t *testing.T) {
 	c := prepCache(0, DefaultTTL, "1", "2", "3", "4", "5")
-	addExpiredToCache(c, "6")
+	addExpiredCacheItems(c, "6")
 	var results []string
 
 	c.Range(func(item *Item[string, string]) bool {
@@ -940,7 +940,7 @@ func Test_Cache_Range(t *testing.T) {
 	})
 
 	deletedCache := New[string, string]()
-	addToCache(deletedCache, time.Minute, "6", "3", "4")
+	addTTLCacheItems(deletedCache, time.Minute, "6", "3", "4")
 	assert.NotPanics(t, func() {
 		deletedCache.Range(func(item *Item[string, string]) bool {
 			deletedCache.DeleteAll()
@@ -951,8 +951,8 @@ func Test_Cache_Range(t *testing.T) {
 
 func Test_Cache_RangeBackwards(t *testing.T) {
 	c := prepCache(0, DefaultTTL)
-	addExpiredToCache(c, "1")
-	addToCache(c, time.Hour, "2", "3", "4", "5")
+	addExpiredCacheItems(c, "1")
+	addTTLCacheItems(c, time.Hour, "2", "3", "4", "5")
 
 	var results []string
 
@@ -980,7 +980,7 @@ func Test_Cache_RangeBackwards(t *testing.T) {
 	})
 
 	deletedCache := New[string, string]()
-	addToCache(deletedCache, time.Minute, "6", "3", "4")
+	addTTLCacheItems(deletedCache, time.Minute, "6", "3", "4")
 	assert.NotPanics(t, func() {
 		deletedCache.RangeBackwards(func(item *Item[string, string]) bool {
 			deletedCache.DeleteAll()
@@ -1001,7 +1001,7 @@ func Test_Cache_Start(t *testing.T) {
 	cache := prepCache(0, 0)
 	cache.stopCh = make(chan struct{})
 
-	addExpiredToCache(cache, "1")
+	addExpiredCacheItems(cache, "1")
 	time.Sleep(time.Millisecond) // force expiration
 
 	fn := func(r EvictionReason, _ *Item[string, string]) {
@@ -1015,14 +1015,14 @@ func Test_Cache_Start(t *testing.T) {
 			switch v {
 			case 1:
 				cache.items.mu.Lock()
-				addExpiredToCache(cache, "2")
+				addExpiredCacheItems(cache, "2")
 				cache.items.mu.Unlock()
 				cache.options.ttl = time.Hour
 				cache.items.timerCh <- time.Millisecond
 			case 2:
 				cache.items.mu.Lock()
-				addToCache(cache, time.Second, "3")
-				addToCache(cache, NoTTL, "4")
+				addTTLCacheItems(cache, time.Second, "3")
+				addTTLCacheItems(cache, NoTTL, "4")
 				cache.items.mu.Unlock()
 				cache.items.timerCh <- time.Millisecond
 			default:
@@ -1380,40 +1380,40 @@ func prepCache(maxCost uint64, ttl time.Duration, keys ...string) *Cache[string,
 	c.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[string, string]))
 	c.events.insertion.fns = make(map[uint64]func(*Item[string, string]))
 
-	addToCache(c, ttl, keys...)
+	addTTLCacheItems(c, ttl, keys...)
 
 	return c
 }
 
-func addToCache(c *Cache[string, string], ttl time.Duration, keys ...string) {
-	for i, key := range keys {
-		value := fmt.Sprint("value of", key)
-		item := newItemWithOpts(
+func addTTLCacheItems(c *Cache[string, string], ttl time.Duration, keys ...string) {
+	addCacheItems(c, func(index int, key string) *Item[string, string] {
+		return newItemWithOpts(
 			key,
-			value,
-			ttl+time.Duration(i)*time.Minute,
+			fmt.Sprint("value of", key),
+			ttl+time.Duration(index)*time.Minute,
 			c.options.itemOpts...,
 		)
-		elem := c.items.lru.PushFront(item)
-		c.items.values[key] = elem
-		c.items.expQueue.push(elem)
-
-		if c.options.maxCost != 0 {
-			c.cost += item.cost
-		}
-	}
+	}, keys...)
 }
 
-func addExpiredToCache(c *Cache[string, string], keys ...string) {
-	for _, key := range keys {
-		value := fmt.Sprint("value of", key)
+func addExpiredCacheItems(c *Cache[string, string], keys ...string) {
+	addCacheItems(c, func(index int, key string) *Item[string, string] {
 		item := newItemWithOpts(
 			key,
-			value,
+			fmt.Sprint("value of", key),
 			time.Nanosecond, // expired immediately
 			c.options.itemOpts...,
 		)
 		item.expiresAt = time.Now().Add(-time.Nanosecond)
+
+		return item
+	}, keys...)
+}
+
+func addCacheItems(c *Cache[string, string], itemFn func(index int, key string) *Item[string, string], keys ...string) {
+	for i, key := range keys {
+		item := itemFn(i, key)
+
 		elem := c.items.lru.PushFront(item)
 		c.items.values[key] = elem
 		c.items.expQueue.push(elem)
