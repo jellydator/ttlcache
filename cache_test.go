@@ -1029,7 +1029,6 @@ func Test_Cache_Start(t *testing.T) {
 	cache.events.eviction.fns[1] = fn
 
 	cache.Start()
-	assert.True(t, cache.stopped) // callback fn stops the cache
 
 	cache.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[string, string]))
 	cache.stopCh = make(chan struct{})
@@ -1038,17 +1037,9 @@ func Test_Cache_Start(t *testing.T) {
 	go cache.Start() // should be no-op
 
 	assert.Eventually(t, func() bool {
-		cache.stopMu.RLock()
-		defer cache.stopMu.RUnlock()
+		cache.stopMu.Lock()
+		defer cache.stopMu.Unlock()
 		return !cache.stopped
-	}, time.Second, time.Millisecond*100)
-
-	close(cache.stopCh)
-
-	assert.Eventually(t, func() bool {
-		cache.stopMu.RLock()
-		defer cache.stopMu.RUnlock()
-		return cache.stopped
 	}, time.Second, time.Millisecond*100)
 
 }

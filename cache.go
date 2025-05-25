@@ -55,7 +55,7 @@ type Cache[K comparable, V any] struct {
 		}
 	}
 
-	stopMu  sync.RWMutex
+	stopMu  sync.Mutex
 	stopCh  chan struct{}
 	stopped bool
 
@@ -672,10 +672,6 @@ func (c *Cache[K, V]) Start() {
 	for {
 		select {
 		case <-c.stopCh:
-			c.stopMu.Lock()
-			c.stopped = true
-			c.stopMu.Unlock()
-
 			return
 		case d := <-c.items.timerCh:
 			stop()
@@ -691,14 +687,16 @@ func (c *Cache[K, V]) Start() {
 // Stop stops the automatic cleanup process.
 // It blocks until the cleanup process exits.
 func (c *Cache[K, V]) Stop() {
-	c.stopMu.RLock()
-	defer c.stopMu.RUnlock()
+	c.stopMu.Lock()
+	defer c.stopMu.Unlock()
 
 	if c.stopped {
 		return
 	}
 
 	c.stopCh <- struct{}{}
+	c.stopped = true
+
 }
 
 // OnInsertion adds the provided function to be executed when
