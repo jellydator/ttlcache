@@ -919,10 +919,28 @@ func Test_Cache_Range(t *testing.T) {
 
 	assert.Equal(t, []string{"5", "4"}, results)
 
+	results = nil
+
+	c.Range(func(item *Item[string, string]) bool {
+		results = append(results, item.Key())
+		return true
+	})
+
+	assert.Equal(t, []string{"5", "4", "3", "2", "1"}, results)
+
 	emptyCache := New[string, string]()
 	assert.NotPanics(t, func() {
 		emptyCache.Range(func(item *Item[string, string]) bool {
 			return false
+		})
+	})
+
+	deletedCache := New[string, string]()
+	addToCache(deletedCache, time.Minute, "6", "3", "4")
+	assert.NotPanics(t, func() {
+		deletedCache.Range(func(item *Item[string, string]) bool {
+			deletedCache.DeleteAll()
+			return true
 		})
 	})
 }
@@ -941,10 +959,28 @@ func Test_Cache_RangeBackwards(t *testing.T) {
 
 	assert.Equal(t, []string{"2", "3", "4"}, results)
 
+	results = nil
+
+	c.RangeBackwards(func(item *Item[string, string]) bool {
+		results = append(results, item.Key())
+		return true
+	})
+
+	assert.Equal(t, []string{"2", "3", "4", "5"}, results)
+
 	emptyCache := New[string, string]()
 	assert.NotPanics(t, func() {
 		emptyCache.RangeBackwards(func(item *Item[string, string]) bool {
 			return false
+		})
+	})
+
+	deletedCache := New[string, string]()
+	addToCache(deletedCache, time.Minute, "6", "3", "4")
+	assert.NotPanics(t, func() {
+		deletedCache.RangeBackwards(func(item *Item[string, string]) bool {
+			deletedCache.DeleteAll()
+			return true
 		})
 	})
 }
