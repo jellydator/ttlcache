@@ -100,7 +100,7 @@ func main() {
 }
 ```
 
-To subscribe to insertion and eviction events, `cache.OnInsertion()` and 
+To subscribe to insertion, update and eviction events, `cache.OnInsertion()`, `cache.OnUpdate()` and 
 `cache.OnEviction()` methods should be used:
 ```go
 func main() {
@@ -110,6 +110,9 @@ func main() {
 	)
 
 	cache.OnInsertion(func(ctx context.Context, item *ttlcache.Item[string, string]) {
+		fmt.Println(item.Value(), item.ExpiresAt())
+	})
+	cache.OnUpdate(func(ctx context.Context, item *ttlcache.Item[string, string]) {
 		fmt.Println(item.Value(), item.ExpiresAt())
 	})
 	cache.OnEviction(func(ctx context.Context, reason ttlcache.EvictionReason, item *ttlcache.Item[string, string]) {
