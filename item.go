@@ -42,12 +42,16 @@ type Item[K comparable, V any] struct {
 }
 
 // NewItem creates a new cache item.
+//
+// Deprecated: Use NewItemWithOpts instead. This function will be removed
+// in a future release.
 func NewItem[K comparable, V any](key K, value V, ttl time.Duration, enableVersionTracking bool) *Item[K, V] {
-	return newItemWithOpts(key, value, ttl, withVersionTracking[K, V](enableVersionTracking))
+	return NewItemWithOpts(key, value, ttl, WithItemVersion[K, V](enableVersionTracking))
 }
 
-// newItemWithOpts creates a new cache item.
-func newItemWithOpts[K comparable, V any](key K, value V, ttl time.Duration, opts ...itemOption[K, V]) *Item[K, V] {
+// NewItemWithOpts creates a new cache item and applies the provided item
+// options.
+func NewItemWithOpts[K comparable, V any](key K, value V, ttl time.Duration, opts ...ItemOption[K, V]) *Item[K, V] {
 	item := &Item[K, V]{
 		key:           key,
 		value:         value,
@@ -56,10 +60,7 @@ func newItemWithOpts[K comparable, V any](key K, value V, ttl time.Duration, opt
 		calculateCost: func(item *Item[K, V]) uint64 { return 0 },
 	}
 
-	for _, opt := range opts {
-		opt.apply(item)
-	}
-
+	applyItemOptions(item, opts...)
 	item.touch()
 	item.cost = item.calculateCost(item)
 
