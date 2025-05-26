@@ -26,14 +26,16 @@ type options[K comparable, V any] struct {
 	ttl               time.Duration
 	loader            Loader[K, V]
 	disableTouchOnHit bool
-	itemOpts          []itemOption[K, V]
+	itemOpts          []ItemOption[K, V]
 }
 
-// applyOptions applies the provided option values to the option struct and returns the modified option struct.
+// applyOptions applies the provided option values to the option struct
+// and returns the modified option struct.
 func applyOptions[K comparable, V any](v options[K, V], opts ...Option[K, V]) options[K, V] {
 	for i := range opts {
 		v = opts[i].apply(v)
 	}
+
 	return v
 }
 
@@ -60,7 +62,7 @@ func WithTTL[K comparable, V any](ttl time.Duration) Option[K, V] {
 // It has no effect when used with Get().
 func WithVersion[K comparable, V any](enable bool) Option[K, V] {
 	return optionFunc[K, V](func(opts options[K, V]) options[K, V] {
-		opts.itemOpts = append(opts.itemOpts, withVersionTracking[K, V](enable))
+		opts.itemOpts = append(opts.itemOpts, WithItemVersion[K, V](enable))
 		return opts
 	})
 }
@@ -90,16 +92,17 @@ func WithDisableTouchOnHit[K comparable, V any]() Option[K, V] {
 // WithMaxCost sets the maximum cost the cache is allowed to use (e.g. the used memory).
 // The actual cost calculation for each inserted item happens by making use of the
 // callback CostFunc.
+// It has no effect when used with Get().
 func WithMaxCost[K comparable, V any](s uint64, callback CostFunc[K, V]) Option[K, V] {
 	return optionFunc[K, V](func(opts options[K, V]) options[K, V] {
 		opts.maxCost = s
-		opts.itemOpts = append(opts.itemOpts, withCostFunc[K, V](callback))
+		opts.itemOpts = append(opts.itemOpts, WithItemCostFunc(callback))
 		return opts
 	})
 }
 
-// itemOption represents an option to be applied to an Item on creation
-type itemOption[K comparable, V any] interface {
+// ItemOption sets a specific item option on item creation.
+type ItemOption[K comparable, V any] interface {
 	apply(item *Item[K, V])
 }
 
@@ -111,10 +114,18 @@ func (fn itemOptionFunc[K, V]) apply(item *Item[K, V]) {
 	fn(item)
 }
 
-// withVersionTracking deactivates ot activates item version tracking.
+// applyItemOptions applies the provided option values to the Item.
+// Note that this function needs to be called only when creating a new item,
+// because we don't use the Item's mutex here.
+func applyItemOptions[K comparable, V any](item *Item[K, V], opts ...ItemOption[K, V]) {
+	for i := range opts {
+		opts[i].apply(item)
+	}
+}
+
+// WithItemVersion activates item version tracking.
 // If version tracking is disabled, the version is always -1.
-// It has no effect when used with Get().
-func withVersionTracking[K comparable, V any](enable bool) itemOption[K, V] {
+func WithItemVersion[K comparable, V any](enable bool) ItemOption[K, V] {
 	return itemOptionFunc[K, V](func(item *Item[K, V]) {
 		if enable {
 			item.version = 0
@@ -124,8 +135,9 @@ func withVersionTracking[K comparable, V any](enable bool) itemOption[K, V] {
 	})
 }
 
-// withCostFunc configures the cost calculation function for an item
-func withCostFunc[K comparable, V any](costFunc CostFunc[K, V]) itemOption[K, V] {
+// WithItemCostFunc configures an item's cost calculation function.
+// A nil value disables an item's cost calculation.
+func WithItemCostFunc[K comparable, V any](costFunc CostFunc[K, V]) ItemOption[K, V] {
 	return itemOptionFunc[K, V](func(item *Item[K, V]) {
 		if costFunc != nil {
 			item.calculateCost = costFunc

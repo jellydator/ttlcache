@@ -1475,12 +1475,12 @@ func prepCache(maxCost uint64, ttl time.Duration, keys ...string) *Cache[string,
 	}
 	c.options.ttl = ttl
 	c.options.itemOpts = append(c.options.itemOpts,
-		withVersionTracking[string, string](false))
+		WithItemVersion[string, string](false))
 
 	if maxCost != 0 {
 		c.options.maxCost = maxCost
 		c.options.itemOpts = append(c.options.itemOpts,
-			withCostFunc(func(item *Item[string, string]) uint64 {
+			WithItemCostFunc(func(item *Item[string, string]) uint64 {
 				return uint64(len(item.value))
 			}))
 	}
@@ -1501,7 +1501,7 @@ func prepCache(maxCost uint64, ttl time.Duration, keys ...string) *Cache[string,
 func addToCache(c *Cache[string, string], ttl time.Duration, keys ...string) {
 	for i, key := range keys {
 		value := fmt.Sprint("value of", key)
-		item := newItemWithOpts(
+		item := NewItemWithOpts(
 			key,
 			value,
 			ttl+time.Duration(i)*time.Minute,
