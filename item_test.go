@@ -34,7 +34,7 @@ func Test_newItemWithOpts(t *testing.T) {
 				assert.Equal(t, int64(-1), item.version)
 				assert.Equal(t, uint64(0), item.cost)
 				require.NotNil(t, item.calculateCost)
-				assert.Equal(t, uint64(0), item.calculateCost(item))
+				assert.Equal(t, uint64(0), item.calculateCost(CostItem[string, int]{Key: item.key, Value: item.value}))
 			},
 		},
 		{
@@ -46,7 +46,7 @@ func Test_newItemWithOpts(t *testing.T) {
 				assert.Equal(t, int64(-1), item.version)
 				assert.Equal(t, uint64(0), item.cost)
 				require.NotNil(t, item.calculateCost)
-				assert.Equal(t, uint64(0), item.calculateCost(item))
+				assert.Equal(t, uint64(0), item.calculateCost(CostItem[string, int]{Key: item.key, Value: item.value}))
 			},
 		},
 		{
@@ -58,19 +58,19 @@ func Test_newItemWithOpts(t *testing.T) {
 				assert.Equal(t, int64(0), item.version)
 				assert.Equal(t, uint64(0), item.cost)
 				require.NotNil(t, item.calculateCost)
-				assert.Equal(t, uint64(0), item.calculateCost(item))
+				assert.Equal(t, uint64(0), item.calculateCost(CostItem[string, int]{Key: item.key, Value: item.value}))
 			},
 		},
 		{
 			uc: "item with cost calculation",
 			opts: []itemOption[string, int]{
-				withCostFunc[string, int](func(item *Item[string, int]) uint64 { return 5 }),
+				withCostFunc[string, int](func(item CostItem[string, int]) uint64 { return 5 }),
 			},
 			assert: func(t *testing.T, item *Item[string, int]) {
 				assert.Equal(t, int64(-1), item.version)
 				assert.Equal(t, uint64(5), item.cost)
 				require.NotNil(t, item.calculateCost)
-				assert.Equal(t, uint64(5), item.calculateCost(item))
+				assert.Equal(t, uint64(5), item.calculateCost(CostItem[string, int]{Key: item.key, Value: item.value}))
 			},
 		},
 	} {
@@ -152,7 +152,7 @@ func Test_Item_update(t *testing.T) {
 			uc: "with version calculation and version tracking",
 			opts: []itemOption[string, string]{
 				withVersionTracking[string, string](true),
-				withCostFunc[string, string](func(item *Item[string, string]) uint64 { return uint64(len(item.Value())) }),
+				withCostFunc[string, string](func(item CostItem[string, string]) uint64 { return uint64(len(item.Value)) }),
 			},
 			ttl: time.Hour,
 			assert: func(t *testing.T, item *Item[string, string]) {

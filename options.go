@@ -17,7 +17,7 @@ func (fn optionFunc[K, V]) apply(opts options[K, V]) options[K, V] {
 
 // CostFunc is used to calculate the cost of the key and the item to be
 // inserted into the cache.
-type CostFunc[K comparable, V any] func(item *Item[K, V]) uint64
+type CostFunc[K comparable, V any] func(item CostItem[K, V]) uint64
 
 // options holds all available cache configuration options.
 type options[K comparable, V any] struct {

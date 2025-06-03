@@ -18,6 +18,13 @@ const (
 	DefaultTTL time.Duration = 0
 )
 
+// CostItem holds the key and the value of the Item object for
+// Item cost calculation purposes.
+type CostItem[K comparable, V any] struct {
+	Key   K
+	Value V
+}
+
 // Item holds all the information that is associated with a single
 // cache value.
 type Item[K comparable, V any] struct {
@@ -39,7 +46,6 @@ type Item[K comparable, V any] struct {
 	version       int64
 	calculateCost CostFunc[K, V]
 	cost          uint64
-	isSnapshot    bool
 }
 
 // NewItem creates a new cache item.
@@ -54,7 +60,7 @@ func newItemWithOpts[K comparable, V any](key K, value V, ttl time.Duration, opt
 		value:         value,
 		ttl:           ttl,
 		version:       -1,
-		calculateCost: func(item *Item[K, V]) uint64 { return 0 },
+		calculateCost: func(item CostItem[K, V]) uint64 { return 0 },
 	}
 
 	for _, opt := range opts {
@@ -62,7 +68,10 @@ func newItemWithOpts[K comparable, V any](key K, value V, ttl time.Duration, opt
 	}
 
 	item.touch()
-	item.cost = item.calculateCost(item)
+	item.cost = item.calculateCost(CostItem[K, V]{
+		Key:   key,
+		Value: value,
+	})
 
 	return item
 }
@@ -87,16 +96,10 @@ func (item *Item[K, V]) update(value V, ttl time.Duration) {
 		item.touchUnsafe()
 	}
 
-	// calculating the costs over a snapshot rather the current
-	// item to avoid a deadlock if the implementation of the callback
-	// uses the public getter functions.
-	item.cost = item.calculateCost(&Item[K, V]{
-		key:        item.key,
-		value:      item.value,
-		version:    item.version,
-		ttl:        item.ttl,
-		expiresAt:  item.expiresAt,
-		isSnapshot: true,
+	// calculating the costs
+	item.cost = item.calculateCost(CostItem[K, V]{
+		Key:   item.key,
+		Value: item.value,
 	})
 }
 
@@ -121,10 +124,6 @@ func (item *Item[K, V]) touchUnsafe() {
 // IsExpired returns a bool value that indicates whether the item
 // is expired.
 func (item *Item[K, V]) IsExpired() bool {
-	if item.isSnapshot {
-		return item.isExpiredUnsafe()
-	}
-
 	item.mu.RLock()
 	defer item.mu.RUnlock()
 
@@ -143,10 +142,6 @@ func (item *Item[K, V]) isExpiredUnsafe() bool {
 
 // Key returns the key of the item.
 func (item *Item[K, V]) Key() K {
-	if item.isSnapshot {
-		return item.key
-	}
-
 	item.mu.RLock()
 	defer item.mu.RUnlock()
 
@@ -155,10 +150,6 @@ func (item *Item[K, V]) Key() K {
 
 // Value returns the value of the item.
 func (item *Item[K, V]) Value() V {
-	if item.isSnapshot {
-		return item.value
-	}
-
 	item.mu.RLock()
 	defer item.mu.RUnlock()
 
@@ -167,10 +158,6 @@ func (item *Item[K, V]) Value() V {
 
 // TTL returns the TTL value of the item.
 func (item *Item[K, V]) TTL() time.Duration {
-	if item.isSnapshot {
-		return item.ttl
-	}
-
 	item.mu.RLock()
 	defer item.mu.RUnlock()
 
@@ -179,10 +166,6 @@ func (item *Item[K, V]) TTL() time.Duration {
 
 // ExpiresAt returns the expiration timestamp of the item.
 func (item *Item[K, V]) ExpiresAt() time.Time {
-	if item.isSnapshot {
-		return item.expiresAt
-	}
-
 	item.mu.RLock()
 	defer item.mu.RUnlock()
 
@@ -193,10 +176,6 @@ func (item *Item[K, V]) ExpiresAt() time.Time {
 // changes made to the item.
 // If version tracking is disabled, the return value is always -1.
 func (item *Item[K, V]) Version() int64 {
-	if item.isSnapshot {
-		return item.version
-	}
-
 	item.mu.RLock()
 	defer item.mu.RUnlock()
 
