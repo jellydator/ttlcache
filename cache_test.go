@@ -30,6 +30,7 @@ func Test_New(t *testing.T) {
 	assert.NotNil(t, c.items.expQueue)
 	assert.NotNil(t, c.items.timerCh)
 	assert.NotNil(t, c.events.insertion.fns)
+	assert.NotNil(t, c.events.update.fns)
 	assert.NotNil(t, c.events.eviction.fns)
 	assert.Equal(t, time.Hour, c.options.ttl)
 	assert.Equal(t, uint64(1), c.options.capacity)
@@ -171,28 +172,45 @@ func Test_Cache_set(t *testing.T) {
 	const newKey, existingKey, evictedKey = "newKey123", "existingKey", "evicted"
 
 	cc := map[string]struct {
-		Capacity  uint64
-		MaxCost   uint64
-		Key       string
-		TTL       time.Duration
-		Metrics   Metrics
-		ExpectFns bool
+		Capacity     uint64
+		MaxCost      uint64
+		Key          string
+		TTL          time.Duration
+		Metrics      Metrics
+		InsertCalled bool
+		UpdateCalled bool
 	}{
 		"Set with existing key and custom TTL": {
 			Key: existingKey,
 			TTL: time.Minute,
+			Metrics: Metrics{
+				Updates: 1,
+			},
+			UpdateCalled: true,
 		},
 		"Set with existing key and NoTTL": {
 			Key: existingKey,
 			TTL: NoTTL,
+			Metrics: Metrics{
+				Updates: 1,
+			},
+			UpdateCalled: true,
 		},
 		"Set with existing key and DefaultTTL": {
 			Key: existingKey,
 			TTL: DefaultTTL,
+			Metrics: Metrics{
+				Updates: 1,
+			},
+			UpdateCalled: true,
 		},
 		"Set with existing key and PreviousOrDefaultTTL": {
 			Key: existingKey,
 			TTL: PreviousOrDefaultTTL,
+			Metrics: Metrics{
+				Updates: 1,
+			},
+			UpdateCalled: true,
 		},
 		"Set with new key and eviction caused by small capacity": {
 			Capacity: 3,
@@ -202,7 +220,7 @@ func Test_Cache_set(t *testing.T) {
 				Insertions: 1,
 				Evictions:  1,
 			},
-			ExpectFns: true,
+			InsertCalled: true,
 		},
 		"Set with new key and no eviction caused by large capacity": {
 			Capacity: 10,
@@ -211,7 +229,7 @@ func Test_Cache_set(t *testing.T) {
 			Metrics: Metrics{
 				Insertions: 1,
 			},
-			ExpectFns: true,
+			InsertCalled: true,
 		},
 		"Set with new key and custom TTL": {
 			Key: newKey,
@@ -219,7 +237,7 @@ func Test_Cache_set(t *testing.T) {
 			Metrics: Metrics{
 				Insertions: 1,
 			},
-			ExpectFns: true,
+			InsertCalled: true,
 		},
 		"Set with new key and NoTTL": {
 			Key: newKey,
@@ -227,7 +245,7 @@ func Test_Cache_set(t *testing.T) {
 			Metrics: Metrics{
 				Insertions: 1,
 			},
-			ExpectFns: true,
+			InsertCalled: true,
 		},
 		"Set with new key and DefaultTTL": {
 			Key: newKey,
@@ -235,7 +253,7 @@ func Test_Cache_set(t *testing.T) {
 			Metrics: Metrics{
 				Insertions: 1,
 			},
-			ExpectFns: true,
+			InsertCalled: true,
 		},
 		"Set with new key and PreviousOrDefaultTTL": {
 			Key: newKey,
@@ -243,7 +261,7 @@ func Test_Cache_set(t *testing.T) {
 			Metrics: Metrics{
 				Insertions: 1,
 			},
-			ExpectFns: true,
+			InsertCalled: true,
 		},
 		"Set with existing key and eviction caused by exhausted cost": {
 			MaxCost: 30,
@@ -251,8 +269,10 @@ func Test_Cache_set(t *testing.T) {
 			TTL:     DefaultTTL,
 			Metrics: Metrics{
 				Insertions: 0,
+				Updates:    1,
 				Evictions:  1,
 			},
+			UpdateCalled: true,
 		},
 		"Set with existing key and no eviction": {
 			MaxCost: 50,
@@ -260,8 +280,10 @@ func Test_Cache_set(t *testing.T) {
 			TTL:     DefaultTTL,
 			Metrics: Metrics{
 				Insertions: 0,
+				Updates:    1,
 				Evictions:  0,
 			},
+			UpdateCalled: true,
 		},
 		"Set with new key and eviction caused by exhausted cost": {
 			MaxCost: 40,
@@ -282,6 +304,7 @@ func Test_Cache_set(t *testing.T) {
 
 			var (
 				insertFnsCalls   int
+				updateFnsCalls   int
 				evictionFnsCalls int
 			)
 
@@ -295,7 +318,12 @@ func Test_Cache_set(t *testing.T) {
 				assert.Equal(t, newKey, item.key)
 				insertFnsCalls++
 			}
+			cache.events.update.fns[1] = func(item *Item[string, string]) {
+				assert.Equal(t, existingKey, item.key)
+				updateFnsCalls++
+			}
 			cache.events.insertion.fns[2] = cache.events.insertion.fns[1]
+			cache.events.update.fns[2] = cache.events.update.fns[1]
 			cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
 				if c.MaxCost != 0 {
 					assert.Equal(t, EvictionReasonMaxCostExceeded, r)
@@ -312,12 +340,16 @@ func Test_Cache_set(t *testing.T) {
 
 			item := cache.set(c.Key, "value123", c.TTL)
 
-			if c.ExpectFns {
+			if c.InsertCalled {
 				assert.Equal(t, 2, insertFnsCalls)
 
 				if c.Capacity > 0 && c.Capacity < 4 {
 					assert.Equal(t, 2, evictionFnsCalls)
 				}
+			}
+
+			if c.UpdateCalled {
+				assert.Equal(t, 2, updateFnsCalls)
 			}
 
 			assert.Same(t, cache.items.values[c.Key].Value.(*Item[string, string]), item)
@@ -919,10 +951,28 @@ func Test_Cache_Range(t *testing.T) {
 
 	assert.Equal(t, []string{"5", "4"}, results)
 
+	results = nil
+
+	c.Range(func(item *Item[string, string]) bool {
+		results = append(results, item.Key())
+		return true
+	})
+
+	assert.Equal(t, []string{"5", "4", "3", "2", "1"}, results)
+
 	emptyCache := New[string, string]()
 	assert.NotPanics(t, func() {
 		emptyCache.Range(func(item *Item[string, string]) bool {
 			return false
+		})
+	})
+
+	deletedCache := New[string, string]()
+	addToCache(deletedCache, time.Minute, "6", "3", "4")
+	assert.NotPanics(t, func() {
+		deletedCache.Range(func(item *Item[string, string]) bool {
+			deletedCache.DeleteAll()
+			return true
 		})
 	})
 }
@@ -941,10 +991,28 @@ func Test_Cache_RangeBackwards(t *testing.T) {
 
 	assert.Equal(t, []string{"2", "3", "4"}, results)
 
+	results = nil
+
+	c.RangeBackwards(func(item *Item[string, string]) bool {
+		results = append(results, item.Key())
+		return true
+	})
+
+	assert.Equal(t, []string{"2", "3", "4", "5"}, results)
+
 	emptyCache := New[string, string]()
 	assert.NotPanics(t, func() {
 		emptyCache.RangeBackwards(func(item *Item[string, string]) bool {
 			return false
+		})
+	})
+
+	deletedCache := New[string, string]()
+	addToCache(deletedCache, time.Minute, "6", "3", "4")
+	assert.NotPanics(t, func() {
+		deletedCache.RangeBackwards(func(item *Item[string, string]) bool {
+			deletedCache.DeleteAll()
+			return true
 		})
 	})
 }
@@ -993,12 +1061,33 @@ func Test_Cache_Start(t *testing.T) {
 	cache.events.eviction.fns[1] = fn
 
 	cache.Start()
+
+	cache.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[string, string]))
+	cache.stopCh = make(chan struct{})
+	cache.stopped = true
+
+	go cache.Start()
+	go cache.Start() // should be no-op
+
+	assert.Eventually(t, func() bool {
+		cache.stopMu.Lock()
+		defer cache.stopMu.Unlock()
+		return !cache.stopped
+	}, time.Second, time.Millisecond*100)
+
+	assert.NotPanics(t, cache.Stop)
+
 }
 
 func Test_Cache_Stop(t *testing.T) {
 	cache := Cache[string, string]{
-		stopCh: make(chan struct{}, 1),
+		stopCh:  make(chan struct{}, 1),
+		stopped: true,
 	}
+	cache.Stop()
+	assert.Len(t, cache.stopCh, 0)
+
+	cache.stopped = false
 	cache.Stop()
 	assert.Len(t, cache.stopCh, 1)
 }
@@ -1085,6 +1174,90 @@ func Test_Cache_OnInsertion(t *testing.T) {
 
 	assert.Empty(t, cache.events.insertion.fns)
 	assert.NotContains(t, cache.events.insertion.fns, uint64(1))
+}
+
+func Test_Cache_OnUpdate(t *testing.T) {
+	checkCh := make(chan struct{})
+	resCh := make(chan struct{})
+	cache := prepCache(0, time.Hour)
+	del1 := cache.OnUpdate(func(_ context.Context, _ *Item[string, string]) {
+		checkCh <- struct{}{}
+	})
+	del2 := cache.OnUpdate(func(_ context.Context, _ *Item[string, string]) {
+		checkCh <- struct{}{}
+	})
+
+	require.Len(t, cache.events.update.fns, 2)
+	assert.Equal(t, uint64(2), cache.events.update.nextID)
+
+	cache.events.update.fns[0](nil)
+
+	go func() {
+		del1()
+		resCh <- struct{}{}
+	}()
+	assert.Never(t, func() bool {
+		select {
+		case <-resCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*200, time.Millisecond*100)
+	assert.Eventually(t, func() bool {
+		select {
+		case <-checkCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*500, time.Millisecond*250)
+	assert.Eventually(t, func() bool {
+		select {
+		case <-resCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*500, time.Millisecond*250)
+
+	require.Len(t, cache.events.update.fns, 1)
+	assert.NotContains(t, cache.events.update.fns, uint64(0))
+	assert.Contains(t, cache.events.update.fns, uint64(1))
+
+	cache.events.update.fns[1](nil)
+
+	go func() {
+		del2()
+		resCh <- struct{}{}
+	}()
+	assert.Never(t, func() bool {
+		select {
+		case <-resCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*200, time.Millisecond*100)
+	assert.Eventually(t, func() bool {
+		select {
+		case <-checkCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*500, time.Millisecond*250)
+	assert.Eventually(t, func() bool {
+		select {
+		case <-resCh:
+			return true
+		default:
+			return false
+		}
+	}, time.Millisecond*500, time.Millisecond*250)
+
+	assert.Empty(t, cache.events.update.fns)
+	assert.NotContains(t, cache.events.update.fns, uint64(1))
 }
 
 func Test_Cache_OnEviction(t *testing.T) {
@@ -1297,15 +1470,17 @@ func Test_SuppressedLoader_Load(t *testing.T) {
 }
 
 func prepCache(maxCost uint64, ttl time.Duration, keys ...string) *Cache[string, string] {
-	c := &Cache[string, string]{}
+	c := &Cache[string, string]{
+		stopped: true,
+	}
 	c.options.ttl = ttl
 	c.options.itemOpts = append(c.options.itemOpts,
-		withVersionTracking[string, string](false))
+		WithItemVersion[string, string](false))
 
 	if maxCost != 0 {
 		c.options.maxCost = maxCost
 		c.options.itemOpts = append(c.options.itemOpts,
-			withCostFunc[string, string](func(item CostItem[string, string]) uint64 {
+			WithItemCostFunc(func(item CostItem[string, string]) uint64 {
 				return uint64(len(item.Value))
 			}))
 	}
@@ -1316,6 +1491,7 @@ func prepCache(maxCost uint64, ttl time.Duration, keys ...string) *Cache[string,
 	c.items.timerCh = make(chan time.Duration, 1)
 	c.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[string, string]))
 	c.events.insertion.fns = make(map[uint64]func(*Item[string, string]))
+	c.events.update.fns = make(map[uint64]func(*Item[string, string]))
 
 	addToCache(c, ttl, keys...)
 
@@ -1325,7 +1501,7 @@ func prepCache(maxCost uint64, ttl time.Duration, keys ...string) *Cache[string,
 func addToCache(c *Cache[string, string], ttl time.Duration, keys ...string) {
 	for i, key := range keys {
 		value := fmt.Sprint("value of", key)
-		item := newItemWithOpts(
+		item := NewItemWithOpts(
 			key,
 			value,
 			ttl+time.Duration(i)*time.Minute,

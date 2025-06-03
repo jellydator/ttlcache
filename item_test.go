@@ -22,14 +22,11 @@ func Test_NewItem(t *testing.T) {
 
 func Test_newItemWithOpts(t *testing.T) {
 	t.Parallel()
-
-	for _, tc := range []struct {
-		uc     string
-		opts   []itemOption[string, int]
+	cc := map[string]struct {
+		opts   []ItemOption[string, int]
 		assert func(t *testing.T, item *Item[string, int])
 	}{
-		{
-			uc: "item without any options",
+		"Item without any options": {
 			assert: func(t *testing.T, item *Item[string, int]) {
 				assert.Equal(t, int64(-1), item.version)
 				assert.Equal(t, uint64(0), item.cost)
@@ -37,10 +34,11 @@ func Test_newItemWithOpts(t *testing.T) {
 				assert.Equal(t, uint64(0), item.calculateCost(CostItem[string, int]{Key: item.key, Value: item.value}))
 			},
 		},
-		{
-			uc: "item with version tracking disabled",
-			opts: []itemOption[string, int]{
-				withVersionTracking[string, int](false),
+		"Item with version tracking disabled": {
+			opts: []ItemOption[string, int]{
+				itemOptionFunc[string, int](func(i *Item[string, int]) {
+					i.version = -1
+				}),
 			},
 			assert: func(t *testing.T, item *Item[string, int]) {
 				assert.Equal(t, int64(-1), item.version)
@@ -49,10 +47,11 @@ func Test_newItemWithOpts(t *testing.T) {
 				assert.Equal(t, uint64(0), item.calculateCost(CostItem[string, int]{Key: item.key, Value: item.value}))
 			},
 		},
-		{
-			uc: "item with version tracking explicitly enabled",
-			opts: []itemOption[string, int]{
-				withVersionTracking[string, int](true),
+		"Item with version tracking explicitly enabled": {
+			opts: []ItemOption[string, int]{
+				itemOptionFunc[string, int](func(i *Item[string, int]) {
+					i.version = 0
+				}),
 			},
 			assert: func(t *testing.T, item *Item[string, int]) {
 				assert.Equal(t, int64(0), item.version)
@@ -61,10 +60,11 @@ func Test_newItemWithOpts(t *testing.T) {
 				assert.Equal(t, uint64(0), item.calculateCost(CostItem[string, int]{Key: item.key, Value: item.value}))
 			},
 		},
-		{
-			uc: "item with cost calculation",
-			opts: []itemOption[string, int]{
-				withCostFunc[string, int](func(item CostItem[string, int]) uint64 { return 5 }),
+		"Item with cost calculation": {
+			opts: []ItemOption[string, int]{
+				itemOptionFunc[string, int](func(i *Item[string, int]) {
+					i.calculateCost = func(item CostItem[string, int]) uint64 { return 5 }
+				}),
 			},
 			assert: func(t *testing.T, item *Item[string, int]) {
 				assert.Equal(t, int64(-1), item.version)
@@ -73,15 +73,19 @@ func Test_newItemWithOpts(t *testing.T) {
 				assert.Equal(t, uint64(5), item.calculateCost(CostItem[string, int]{Key: item.key, Value: item.value}))
 			},
 		},
-	} {
-		t.Run(tc.uc, func(t *testing.T) {
-			item := newItemWithOpts("key", 123, time.Hour, tc.opts...)
+	}
+
+	for cn, c := range cc {
+		c := c
+
+		t.Run(cn, func(t *testing.T) {
+			item := NewItemWithOpts("key", 123, time.Hour, c.opts...)
 			require.NotNil(t, item)
 			assert.Equal(t, "key", item.key)
 			assert.Equal(t, 123, item.value)
 			assert.Equal(t, time.Hour, item.ttl)
 			assert.WithinDuration(t, time.Now().Add(time.Hour), item.expiresAt, time.Minute)
-			tc.assert(t, item)
+			c.assert(t, item)
 		})
 	}
 }
@@ -92,14 +96,12 @@ func Test_Item_update(t *testing.T) {
 	initialTTL := -1 * time.Hour
 	newValue := "world"
 
-	for _, tc := range []struct {
-		uc     string
-		opts   []itemOption[string, string]
+	cc := map[string]struct {
+		opts   []ItemOption[string, string]
 		ttl    time.Duration
 		assert func(t *testing.T, item *Item[string, string])
 	}{
-		{
-			uc:  "with expiration in an hour",
+		"With expiration in an hour": {
 			ttl: time.Hour,
 			assert: func(t *testing.T, item *Item[string, string]) {
 				t.Helper()
@@ -110,8 +112,7 @@ func Test_Item_update(t *testing.T) {
 				assert.WithinDuration(t, time.Now().Add(time.Hour), item.expiresAt, time.Minute)
 			},
 		},
-		{
-			uc:  "with previous or default ttl",
+		"With previous or default TTL": {
 			ttl: PreviousOrDefaultTTL,
 			assert: func(t *testing.T, item *Item[string, string]) {
 				t.Helper()
@@ -121,8 +122,7 @@ func Test_Item_update(t *testing.T) {
 				assert.Equal(t, int64(-1), item.version)
 			},
 		},
-		{
-			uc:  "with no ttl",
+		"With no TTL": {
 			ttl: NoTTL,
 			assert: func(t *testing.T, item *Item[string, string]) {
 				t.Helper()
@@ -133,10 +133,11 @@ func Test_Item_update(t *testing.T) {
 				assert.Zero(t, item.expiresAt)
 			},
 		},
-		{
-			uc: "with version tracking explicitly disabled",
-			opts: []itemOption[string, string]{
-				withVersionTracking[string, string](false),
+		"With version tracking explicitly disabled": {
+			opts: []ItemOption[string, string]{
+				itemOptionFunc[string, string](func(i *Item[string, string]) {
+					i.version = -1
+				}),
 			},
 			ttl: time.Hour,
 			assert: func(t *testing.T, item *Item[string, string]) {
@@ -148,11 +149,12 @@ func Test_Item_update(t *testing.T) {
 				assert.WithinDuration(t, time.Now().Add(time.Hour), item.expiresAt, time.Minute)
 			},
 		},
-		{
-			uc: "with version calculation and version tracking",
-			opts: []itemOption[string, string]{
-				withVersionTracking[string, string](true),
-				withCostFunc[string, string](func(item CostItem[string, string]) uint64 { return uint64(len(item.Value)) }),
+		"With version calculation and version tracking": {
+			opts: []ItemOption[string, string]{
+				itemOptionFunc[string, string](func(i *Item[string, string]) {
+					i.calculateCost = func(item CostItem[string, string]) uint64 { return uint64(len(item.Value)) }
+					i.version = 0
+				}),
 			},
 			ttl: time.Hour,
 			assert: func(t *testing.T, item *Item[string, string]) {
@@ -164,14 +166,18 @@ func Test_Item_update(t *testing.T) {
 				assert.WithinDuration(t, time.Now().Add(time.Hour), item.expiresAt, time.Minute)
 			},
 		},
-	} {
-		t.Run(tc.uc, func(t *testing.T) {
-			item := newItemWithOpts[string, string]("test", "hello", initialTTL, tc.opts...)
+	}
 
-			item.update(newValue, tc.ttl)
+	for cn, c := range cc {
+		c := c
+
+		t.Run(cn, func(t *testing.T) {
+			item := NewItemWithOpts("test", "hello", initialTTL, c.opts...)
+
+			item.update(newValue, c.ttl)
 
 			assert.Equal(t, newValue, item.value)
-			tc.assert(t, item)
+			c.assert(t, item)
 		})
 	}
 

@@ -48,6 +48,11 @@ type Cache[K comparable, V any] struct {
 			nextID uint64
 			fns    map[uint64]func(*Item[K, V])
 		}
+		update struct {
+			mu     sync.RWMutex
+			nextID uint64
+			fns    map[uint64]func(*Item[K, V])
+		}
 		eviction struct {
 			mu     sync.RWMutex
 			nextID uint64
@@ -55,20 +60,25 @@ type Cache[K comparable, V any] struct {
 		}
 	}
 
+	stopMu  sync.Mutex
 	stopCh  chan struct{}
+	stopped bool
+
 	options options[K, V]
 }
 
 // New creates a new instance of cache.
 func New[K comparable, V any](opts ...Option[K, V]) *Cache[K, V] {
 	c := &Cache[K, V]{
-		stopCh: make(chan struct{}),
+		stopCh:  make(chan struct{}),
+		stopped: true, // cache cleanup process is stopped by default
 	}
 	c.items.values = make(map[K]*list.Element)
 	c.items.lru = list.New()
 	c.items.expQueue = newExpirationQueue[K, V]()
 	c.items.timerCh = make(chan time.Duration, 1) // buffer is important
 	c.events.insertion.fns = make(map[uint64]func(*Item[K, V]))
+	c.events.update.fns = make(map[uint64]func(*Item[K, V]))
 	c.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[K, V]))
 
 	c.options = applyOptions(c.options, opts...)
@@ -153,6 +163,16 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 			}
 		}
 
+		c.metricsMu.Lock()
+		c.metrics.Updates++
+		c.metricsMu.Unlock()
+
+		c.events.update.mu.RLock()
+		for _, fn := range c.events.update.fns {
+			fn(item)
+		}
+		c.events.update.mu.RUnlock()
+
 		return item
 	}
 
@@ -166,7 +186,7 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 	}
 
 	// create a new item
-	item := newItemWithOpts(key, value, ttl, c.options.itemOpts...)
+	item := NewItemWithOpts(key, value, ttl, c.options.itemOpts...)
 	elem = c.items.lru.PushFront(item)
 	c.items.values[key] = elem
 	c.updateExpirations(true, elem)
@@ -572,7 +592,7 @@ func (c *Cache[K, V]) Range(fn func(item *Item[K, V]) bool) {
 		return
 	}
 
-	for item := c.items.lru.Front(); item != c.items.lru.Back().Next(); item = item.Next() {
+	for item := c.items.lru.Front(); c.items.lru.Len() != 0 && item != c.items.lru.Back().Next(); item = item.Next() {
 		i := item.Value.(*Item[K, V])
 		expired := i.isExpiredUnsafe()
 		c.items.mu.RUnlock() // unlock mutex so fn func can access it (if it needs to)
@@ -596,7 +616,7 @@ func (c *Cache[K, V]) RangeBackwards(fn func(item *Item[K, V]) bool) {
 		return
 	}
 
-	for item := c.items.lru.Back(); item != c.items.lru.Front().Prev(); item = item.Prev() {
+	for item := c.items.lru.Back(); c.items.lru.Len() != 0 && item != c.items.lru.Front().Prev(); item = item.Prev() {
 		i := item.Value.(*Item[K, V])
 		expired := i.isExpiredUnsafe()
 		c.items.mu.RUnlock() // unlock mutex so fn func can access it (if it needs to)
@@ -621,6 +641,15 @@ func (c *Cache[K, V]) Metrics() Metrics {
 // expired items.
 // It blocks until Stop is called.
 func (c *Cache[K, V]) Start() {
+	c.stopMu.Lock()
+	if !c.stopped {
+		c.stopMu.Unlock()
+		return
+	}
+
+	c.stopped = false
+	c.stopMu.Unlock()
+
 	waitDur := func() time.Duration {
 		c.items.mu.RLock()
 		defer c.items.mu.RUnlock()
@@ -674,7 +703,16 @@ func (c *Cache[K, V]) Start() {
 // Stop stops the automatic cleanup process.
 // It blocks until the cleanup process exits.
 func (c *Cache[K, V]) Stop() {
+	c.stopMu.Lock()
+	defer c.stopMu.Unlock()
+
+	if c.stopped {
+		return
+	}
+
 	c.stopCh <- struct{}{}
+	c.stopped = true
+
 }
 
 // OnInsertion adds the provided function to be executed when
@@ -710,6 +748,44 @@ func (c *Cache[K, V]) OnInsertion(fn func(context.Context, *Item[K, V])) func() 
 		c.events.insertion.mu.Lock()
 		delete(c.events.insertion.fns, id)
 		c.events.insertion.mu.Unlock()
+
+		wg.Wait()
+	}
+}
+
+// OnUpdate adds the provided function to be executed when
+// an item is updated in the cache. The function is executed
+// on a separate goroutine and does not block the flow of the cache
+// manager.
+// The returned function may be called to delete the subscription function
+// from the list of update subscribers.
+// When the returned function is called, it blocks until all instances of
+// the same subscription function return. A context is used to notify the
+// subscription function when the returned/deletion function is called.
+func (c *Cache[K, V]) OnUpdate(fn func(context.Context, *Item[K, V])) func() {
+	var (
+		wg          sync.WaitGroup
+		ctx, cancel = context.WithCancel(context.Background())
+	)
+
+	c.events.update.mu.Lock()
+	id := c.events.update.nextID
+	c.events.update.fns[id] = func(item *Item[K, V]) {
+		wg.Add(1)
+		go func() {
+			fn(ctx, item)
+			wg.Done()
+		}()
+	}
+	c.events.update.nextID++
+	c.events.update.mu.Unlock()
+
+	return func() {
+		cancel()
+
+		c.events.update.mu.Lock()
+		delete(c.events.update.fns, id)
+		c.events.update.mu.Unlock()
 
 		wg.Wait()
 	}
