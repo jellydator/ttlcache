@@ -166,6 +166,14 @@ func (item *Item[K, V]) TTL() time.Duration {
 	return item.ttl
 }
 
+// Cost returns the cost of the item.
+func (item *Item[K, V]) Cost() uint64 {
+	item.mu.RLock()
+	defer item.mu.RUnlock()
+
+	return item.cost
+}
+
 // ExpiresAt returns the expiration timestamp of the item.
 func (item *Item[K, V]) ExpiresAt() time.Time {
 	item.mu.RLock()
