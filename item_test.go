@@ -31,7 +31,7 @@ func Test_newItemWithOpts(t *testing.T) {
 				assert.Equal(t, int64(-1), item.version)
 				assert.Equal(t, uint64(0), item.cost)
 				require.NotNil(t, item.calculateCost)
-				assert.Equal(t, uint64(0), item.calculateCost(item))
+				assert.Equal(t, uint64(0), item.calculateCost(CostItem[string, int]{Key: item.key, Value: item.value}))
 			},
 		},
 		"Item with version tracking disabled": {
@@ -44,7 +44,7 @@ func Test_newItemWithOpts(t *testing.T) {
 				assert.Equal(t, int64(-1), item.version)
 				assert.Equal(t, uint64(0), item.cost)
 				require.NotNil(t, item.calculateCost)
-				assert.Equal(t, uint64(0), item.calculateCost(item))
+				assert.Equal(t, uint64(0), item.calculateCost(CostItem[string, int]{Key: item.key, Value: item.value}))
 			},
 		},
 		"Item with version tracking explicitly enabled": {
@@ -57,20 +57,20 @@ func Test_newItemWithOpts(t *testing.T) {
 				assert.Equal(t, int64(0), item.version)
 				assert.Equal(t, uint64(0), item.cost)
 				require.NotNil(t, item.calculateCost)
-				assert.Equal(t, uint64(0), item.calculateCost(item))
+				assert.Equal(t, uint64(0), item.calculateCost(CostItem[string, int]{Key: item.key, Value: item.value}))
 			},
 		},
 		"Item with cost calculation": {
 			opts: []ItemOption[string, int]{
 				itemOptionFunc[string, int](func(i *Item[string, int]) {
-					i.calculateCost = func(item *Item[string, int]) uint64 { return 5 }
+					i.calculateCost = func(item CostItem[string, int]) uint64 { return 5 }
 				}),
 			},
 			assert: func(t *testing.T, item *Item[string, int]) {
 				assert.Equal(t, int64(-1), item.version)
 				assert.Equal(t, uint64(5), item.cost)
 				require.NotNil(t, item.calculateCost)
-				assert.Equal(t, uint64(5), item.calculateCost(item))
+				assert.Equal(t, uint64(5), item.calculateCost(CostItem[string, int]{Key: item.key, Value: item.value}))
 			},
 		},
 	}
@@ -152,7 +152,7 @@ func Test_Item_update(t *testing.T) {
 		"With version calculation and version tracking": {
 			opts: []ItemOption[string, string]{
 				itemOptionFunc[string, string](func(i *Item[string, string]) {
-					i.calculateCost = func(item *Item[string, string]) uint64 { return uint64(len(item.value)) }
+					i.calculateCost = func(item CostItem[string, string]) uint64 { return uint64(len(item.Value)) }
 					i.version = 0
 				}),
 			},

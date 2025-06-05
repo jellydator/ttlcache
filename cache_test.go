@@ -1480,8 +1480,8 @@ func prepCache(maxCost uint64, ttl time.Duration, keys ...string) *Cache[string,
 	if maxCost != 0 {
 		c.options.maxCost = maxCost
 		c.options.itemOpts = append(c.options.itemOpts,
-			WithItemCostFunc(func(item *Item[string, string]) uint64 {
-				return uint64(len(item.value))
+			WithItemCostFunc(func(item CostItem[string, string]) uint64 {
+				return uint64(len(item.Value))
 			}))
 	}
 

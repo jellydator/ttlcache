@@ -97,14 +97,14 @@ func Test_WithMaxCost(t *testing.T) {
 	var opts options[string, string]
 	var item Item[string, string]
 
-	opts = WithMaxCost(1024, func(item *Item[string, string]) uint64 { return 1 }).apply(opts)
+	opts = WithMaxCost(1024, func(item CostItem[string, string]) uint64 { return 1 }).apply(opts)
 
 	assert.Equal(t, uint64(1024), opts.maxCost)
 	assert.Len(t, opts.itemOpts, 1)
 	opts.itemOpts[0].apply(&item)
 	assert.Equal(t, uint64(0), item.cost)
 	assert.NotNil(t, item.calculateCost)
-	assert.Equal(t, uint64(1), item.calculateCost(&item))
+	assert.Equal(t, uint64(1), item.calculateCost(CostItem[string, string]{Key: item.key, Value: item.value}))
 }
 
 func Test_applyItemOptions(t *testing.T) {
@@ -114,7 +114,7 @@ func Test_applyItemOptions(t *testing.T) {
 
 	applyItemOptions(&item,
 		WithItemVersion[string, string](true),
-		WithItemCostFunc(func(item *Item[string, string]) uint64 { return 0 }),
+		WithItemCostFunc(func(item CostItem[string, string]) uint64 { return 0 }),
 	)
 
 	assert.Equal(t, int64(0), item.version)
@@ -140,11 +140,11 @@ func Test_WithItemCostFunc(t *testing.T) {
 
 	var item Item[string, string]
 
-	opt := WithItemCostFunc(func(item *Item[string, string]) uint64 {
+	opt := WithItemCostFunc(func(item CostItem[string, string]) uint64 {
 		return 10
 	})
 	opt.apply(&item)
 	assert.Equal(t, uint64(0), item.cost)
 	require.NotNil(t, item.calculateCost)
-	assert.Equal(t, uint64(10), item.calculateCost(&item))
+	assert.Equal(t, uint64(10), item.calculateCost(CostItem[string, string]{Key: item.key, Value: item.value}))
 }
