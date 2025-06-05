@@ -246,6 +246,16 @@ func Test_Item_TTL(t *testing.T) {
 	assert.Equal(t, time.Hour, item.TTL())
 }
 
+func Test_Item_Cost(t *testing.T) {
+	t.Parallel()
+
+	item := Item[string, string]{
+		cost: 50,
+	}
+
+	assert.Equal(t, uint64(50), item.Cost())
+}
+
 func Test_Item_ExpiresAt(t *testing.T) {
 	t.Parallel()
 
