@@ -100,7 +100,7 @@ func main() {
 }
 ```
 
-To subscribe to insertion and eviction events, `cache.OnInsertion()` and 
+To subscribe to insertion, update and eviction events, `cache.OnInsertion()`, `cache.OnUpdate()` and 
 `cache.OnEviction()` methods should be used:
 ```go
 func main() {
@@ -110,6 +110,9 @@ func main() {
 	)
 
 	cache.OnInsertion(func(ctx context.Context, item *ttlcache.Item[string, string]) {
+		fmt.Println(item.Value(), item.ExpiresAt())
+	})
+	cache.OnUpdate(func(ctx context.Context, item *ttlcache.Item[string, string]) {
 		fmt.Println(item.Value(), item.ExpiresAt())
 	})
 	cache.OnEviction(func(ctx context.Context, reason ttlcache.EvictionReason, item *ttlcache.Item[string, string]) {
@@ -144,18 +147,19 @@ func main() {
 
 To restrict the cache's capacity based on criteria beyond the number
 of items it can hold, the `ttlcache.WithMaxCost` option allows for
-implementing custom strategies. The following example demonstrates
-how to limit the maximum memory usage of a cache to 5KiB:
+implementing custom strategies. The following example shows how to limit
+memory usage for cached entries to ~5KiB.
 ```go
 import (
     "github.com/jellydator/ttlcache"
-    "github.com/DmitriyVTitov/size"
 )
 
 func main() {
     cache := ttlcache.New[string, string](
-        ttlcache.WithMaxCost[string, string](5120, func(item *ttlcache.Item[string, string]) uint64 {
-            return uint64(size.Of(item))
+        ttlcache.WithMaxCost[string, string](5120, func(item ttlcache.CostItem[string, string]) uint64 {
+            // Note: The below line doesn't include memory used by internal
+            // structures or string metadata for the key and the value.
+            return len(item.Key) + len(item.Value)
         }), 
     )
 
