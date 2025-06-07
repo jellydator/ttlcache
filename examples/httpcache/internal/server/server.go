@@ -62,7 +62,7 @@ func (s Server) router() http.Handler {
 func (s Server) fetchReport(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
-	// NOTE: For the demonstration purposes, the timer below acts
+	// For the demonstration purposes, the timer below acts
 	// as a placeholder for the actual report fetching logic.
 	select {
 	case <-time.After(5 * time.Second):

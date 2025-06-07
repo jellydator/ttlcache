@@ -9,9 +9,9 @@ go run cmd/main.go
 
 This will spin a HTTP server on port `:8080` with the `/reports/{name}` route. The first time you
 call this endpoint with a custom name, it will take around 5 seconds to complete. All subsequent calls
-to the same path within one minute will fetch you a response within several milliseconds.
+to using the same name within one minute will fetch you a response that will take milliseconds to complete.
 
-Endpoint calling using `curl`:
+The endpoint can be called using `curl`:
 
 ```
 curl 127.0.0.1:8080/reports/hello

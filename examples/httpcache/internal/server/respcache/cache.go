@@ -43,7 +43,7 @@ func (c Cache) Handle(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.URL.RawPath + r.URL.RawQuery
 
-		// NOTE: We check if the response is already cached
+		// We check if the response is already cached
 		// by looking up the key in the cache.
 		item := c.cache.Get(key)
 		if item != nil {
@@ -55,13 +55,13 @@ func (c Cache) Handle(next http.HandlerFunc) http.Handler {
 			return
 		}
 
-		// NOTE: We create a custom response writer to capture the
+		// We create a custom response writer to capture the
 		// response body so that we can cache it.
 		rw := &responseWriter{
 			w:    w,
 			body: &bytes.Buffer{},
 
-			// NOTE: We set a default status code here,
+			// We set a default status code here,
 			// as using Write without WriteHeader automatically
 			// sets the status code to http.StatusOK.
 			statusCode: http.StatusOK,
@@ -69,7 +69,7 @@ func (c Cache) Handle(next http.HandlerFunc) http.Handler {
 
 		next.ServeHTTP(rw, r)
 
-		// NOTE: After the response is written, we cache it
+		// After the response is written, we cache it
 		// using the key we built earlier.
 		c.cache.Set(
 			key,
