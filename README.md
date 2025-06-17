@@ -20,6 +20,10 @@
 go get github.com/jellydator/ttlcache/v3
 ```
 
+## Status
+The `ttlcache` package is stable and used by [Jellydator](https://jellydator.com/), 
+as well as thousands of other projects and organizations in production.
+
 ## Usage
 The main type of `ttlcache` is `Cache`. It represents a single 
 in-memory data store.
