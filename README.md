@@ -166,3 +166,12 @@ func main() {
     cache.Set("first", "value1", ttlcache.DefaultTTL)
 }
 ```
+
+## Examples & Tutorials
+
+See the [example](https://github.com/jellydator/ttlcache/tree/v3/examples) 
+directory for applications demonstrating how to use `ttlcache`.
+
+If you want to learn and follow along as these example applications are 
+built, check out the tutorials below:
+- [Speeding Up HTTP Endpoints with Response Caching in Go](https://jellydator.com/blog/speeding-up-http-endpoints-with-response-caching-in-go/)
