@@ -36,6 +36,7 @@ func NewCache(
 // Close stops the cache and releases resources.
 func (c *Cache) Close() error {
 	c.volumeCache.Stop()
+
 	return nil
 }
 
@@ -62,6 +63,8 @@ func (c *Cache) UpsertAssetVolume(ctx context.Context, asset string, volume int6
 		return err
 	}
 
+	// We set the volume after the upsert operation to ensure
+	// that cache is in sync with the database.
 	c.volumeCache.Set(asset, volume, ttlcache.DefaultTTL)
 
 	return nil

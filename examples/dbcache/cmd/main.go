@@ -43,6 +43,8 @@ func main() {
 func runServices(ctx context.Context, expiration time.Duration) <-chan struct{} {
 	var db order.DB = db.NewDB()
 
+	// In case expiration is not provided, we assume
+	// that caching is disabled.
 	if expiration > 0 {
 		db = cache.NewCache(
 			db,

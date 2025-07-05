@@ -66,6 +66,8 @@ func (s *Streamer) Consume(ctx context.Context) <-chan order.Order {
 	go func() {
 		defer close(ch)
 
+		// Simulate streaming orders by sending them to the channel
+		// one by one.
 		for _, ord := range _orders {
 			select {
 			case <-ctx.Done():

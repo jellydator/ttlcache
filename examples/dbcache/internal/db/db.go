@@ -23,12 +23,13 @@ func NewDB() *DB {
 // In a real application, this would close database connections.
 func (db *DB) Close() error {
 	db.volumes = nil // Clear the in-memory storage
+
 	return nil
 }
 
 // FetchAssetVolume retrieves the volume for a given asset.
-// Mock implementation: In a real application, this would query the database.
 func (db *DB) FetchAssetVolume(ctx context.Context, asset string) (int64, error) {
+	// In a real application, this would query the database.
 	select {
 	case <-ctx.Done():
 		return 0, ctx.Err()
@@ -39,8 +40,8 @@ func (db *DB) FetchAssetVolume(ctx context.Context, asset string) (int64, error)
 }
 
 // UpsertAssetVolume updates or inserts the volume for a given asset.
-// Mock implementation: In a real application, this would perform an upsert operation in the database.
 func (db *DB) UpsertAssetVolume(ctx context.Context, asset string, volume int64) error {
+	// In a real application, this would perform an upsert operation in the database.
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
