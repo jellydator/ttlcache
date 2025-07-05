@@ -16,7 +16,7 @@ type Cache struct {
 	volumeCache *ttlcache.Cache[string, int64]
 }
 
-// NewCache creates a new instance of the DB.
+// NewCache creates a new instance of the cache.
 func NewCache(
 	db order.DB,
 	expiration time.Duration,
@@ -57,7 +57,12 @@ func (c *Cache) FetchAssetVolume(ctx context.Context, asset string) (int64, erro
 
 // UpsertAssetVolume updates or inserts the volume for a given asset.
 func (c *Cache) UpsertAssetVolume(ctx context.Context, asset string, volume int64) error {
+	err := c.db.UpsertAssetVolume(ctx, asset, volume)
+	if err != nil {
+		return err
+	}
+
 	c.volumeCache.Set(asset, volume, ttlcache.DefaultTTL)
 
-	return c.db.UpsertAssetVolume(ctx, asset, volume)
+	return nil
 }
