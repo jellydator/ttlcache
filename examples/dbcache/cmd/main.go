@@ -34,36 +34,23 @@ func main() {
 
 	tstamp := time.Now()
 
-	<-runServices(ctx, expiration)
-
-	slog.With("duration", time.Since(tstamp)).Info("shutdown complete")
-}
-
-// runServices starts the services and returns a shutdown function.
-func runServices(ctx context.Context, expiration time.Duration) <-chan struct{} {
-	var db order.DB = db.NewDB()
+	var dbc order.DB = db.NewDB()
 
 	// In case expiration is not provided, we assume
 	// that caching is disabled.
 	if expiration > 0 {
-		db = cache.NewCache(
-			db,
+		dbc = cache.NewCache(
+			dbc,
 			expiration,
 		)
 	}
 
-	stopCh := make(chan struct{})
+	order.NewManager(
+		stream.NewStreamer(),
+		dbc,
+	).Run(ctx)
 
-	go func() {
-		defer close(stopCh)
+	dbc.Close()
 
-		order.NewManager(
-			stream.NewStreamer(),
-			db,
-		).Run(ctx)
-
-		db.Close()
-	}()
-
-	return stopCh
+	slog.With("duration", time.Since(tstamp)).Info("shutdown complete")
 }
