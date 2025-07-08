@@ -3,7 +3,6 @@ package respcache
 
 import (
 	"bytes"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -13,14 +12,12 @@ import (
 // Cache contains required information to
 // cache HTTP requests.
 type Cache struct {
-	log   *slog.Logger
 	cache *ttlcache.Cache[string, cacheItem]
 }
 
 // NewCache creates a new Cache instance with the specified TTL.
 func NewCache(ttl time.Duration) *Cache {
 	c := &Cache{
-		log: slog.Default().With("component", "cache"),
 		cache: ttlcache.New(
 			ttlcache.WithTTL[string, cacheItem](ttl),
 		),
