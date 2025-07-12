@@ -178,3 +178,4 @@ directory for applications demonstrating how to use `ttlcache`.
 If you want to learn and follow along as these example applications are 
 built, check out the tutorials below:
 - [Speeding Up HTTP Endpoints with Response Caching in Go](https://jellydator.com/blog/speeding-up-http-endpoints-with-response-caching-in-go/)
+- [Scaling Go Applications with Efficient Database Caching](https://jellydator.com/blog/scaling-go-applications-with-efficient-database-caching/)

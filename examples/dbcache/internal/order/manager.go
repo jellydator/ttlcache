@@ -35,7 +35,7 @@ func (m *Manager) Run(ctx context.Context) {
 			continue
 		}
 
-		vol += ord.Volume
+		vol += ord.Quantity
 
 		if err := m.db.UpsertAssetVolume(ctx, ord.Asset, vol); err != nil {
 			m.log.With("error", err).Error("failed to upsert asset volume")
@@ -70,6 +70,6 @@ type Order struct {
 	// Asset is the identifier for the asset.
 	Asset string `json:"asset"`
 
-	// Volume is the amount of the asset in the order.
-	Volume int64 `json:"volume"`
+	// Quantity is the amount of the asset in the order.
+	Quantity int64 `json:"quantity"`
 }

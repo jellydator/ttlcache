@@ -10,44 +10,44 @@ import (
 // This is just a mock data source for demonstration purposes.
 var _orders = []order.Order{
 	{
-		Asset:  "BTC",
-		Volume: 11,
+		Asset:    "BTC",
+		Quantity: 11,
 	},
 	{
-		Asset:  "ETH",
-		Volume: 42,
+		Asset:    "ETH",
+		Quantity: 42,
 	},
 	{
-		Asset:  "ETH",
-		Volume: 33,
+		Asset:    "ETH",
+		Quantity: 33,
 	},
 	{
-		Asset:  "BTC",
-		Volume: 15,
+		Asset:    "BTC",
+		Quantity: 15,
 	},
 	{
-		Asset:  "BTC",
-		Volume: 8,
+		Asset:    "BTC",
+		Quantity: 8,
 	},
 	{
-		Asset:  "ETH",
-		Volume: 29,
+		Asset:    "ETH",
+		Quantity: 29,
 	},
 	{
-		Asset:  "BTC",
-		Volume: 34,
+		Asset:    "BTC",
+		Quantity: 34,
 	},
 	{
-		Asset:  "BTC",
-		Volume: 65,
+		Asset:    "BTC",
+		Quantity: 65,
 	},
 	{
-		Asset:  "ETH",
-		Volume: 5,
+		Asset:    "ETH",
+		Quantity: 5,
 	},
 	{
-		Asset:  "BTC",
-		Volume: 71,
+		Asset:    "BTC",
+		Quantity: 71,
 	},
 }
 
