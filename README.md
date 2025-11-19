@@ -162,7 +162,7 @@ func main() {
         ttlcache.WithMaxCost[string, string](5120, func(item ttlcache.CostItem[string, string]) uint64 {
             // Note: The below line doesn't include memory used by internal
             // structures or string metadata for the key and the value.
-            return len(item.Key) + len(item.Value)
+            return uint64(len(item.Key) + len(item.Value))
         }), 
     )
 
