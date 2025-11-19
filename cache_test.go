@@ -659,11 +659,7 @@ func Test_Cache_Get(t *testing.T) {
 	}
 
 	for cn, c := range cc {
-		c := c
-
 		t.Run(cn, func(t *testing.T) {
-			t.Parallel()
-
 			cache := prepCache(0, time.Minute, foundKey, "test2", "test3")
 			oldExpiresAt := cache.items.values[foundKey].Value.(*Item[string, string]).expiresAt
 			cache.options = c.DefaultOptions
