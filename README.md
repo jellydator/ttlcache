@@ -20,10 +20,6 @@
 go get github.com/jellydator/ttlcache/v3
 ```
 
-## Status
-The `ttlcache` package is stable and used by [Jellydator](https://jellydator.com/), 
-as well as thousands of other projects and organizations in production.
-
 ## Usage
 The main type of `ttlcache` is `Cache`. It represents a single 
 in-memory data store.
@@ -170,12 +166,7 @@ func main() {
 }
 ```
 
-## Examples & Tutorials
+## Examples
 
 See the [example](https://github.com/jellydator/ttlcache/tree/v3/examples) 
 directory for applications demonstrating how to use `ttlcache`.
-
-If you want to learn and follow along as these example applications are 
-built, check out the tutorials below:
-- [Speeding Up HTTP Endpoints with Response Caching in Go](https://jellydator.com/blog/speeding-up-http-endpoints-with-response-caching-in-go/)
-- [Scaling Go Applications with Efficient Database Caching](https://jellydator.com/blog/scaling-go-applications-with-efficient-database-caching/)
