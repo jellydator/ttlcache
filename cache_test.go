@@ -154,7 +154,11 @@ func Test_Cache_updateExpirations(t *testing.T) {
 				}
 			}
 
-			cache.updateExpirations(c.Fresh, elem)
+			var oldExpiresAt time.Time
+			if !c.EmptyQueue {
+				oldExpiresAt = c.OldExpiresAt
+			}
+			cache.updateExpirations(c.Fresh, elem, oldExpiresAt)
 
 			var res time.Duration
 
@@ -416,6 +420,29 @@ func Test_Cache_set(t *testing.T) {
 	time.Sleep(90 * time.Millisecond)
 	cl()
 	c.Stop()
+}
+
+func Test_Cache_ShortenedTTLNotifiesAutoCleaner(t *testing.T) {
+	c := New[string, string](WithTTL[string, string](time.Hour))
+
+	evictCh := make(chan struct{})
+	c.OnEviction(func(_ context.Context, _ EvictionReason, item *Item[string, string]) {
+		if item.Key() == "test" {
+			close(evictCh)
+		}
+	})
+
+	go c.Start()
+	defer c.Stop()
+
+	c.Set("test", "value", time.Hour)
+	c.Set("test", "value", 10*time.Millisecond)
+
+	select {
+	case <-evictCh:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Auto-cleaner was not notified of shortened TTL; item was not evicted on time.")
+	}
 }
 
 func Test_Cache_get(t *testing.T) {
