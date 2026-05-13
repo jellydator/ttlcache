@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -1538,15 +1539,27 @@ func addCacheItems(c *Cache[string, string], itemFn func(index int, key string) 
 }
 
 func allocsPerSingleRun(f func()) int {
-	// `testing.AllocsPerRun` "warms up" the function for a single run before
-	// measuring allocations, so we need to do nothing on the first run.
-	var firstRun bool
+	// Like testing.AllocsPerRun but safe to call while parallel tests are paused.
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
 
-	return int(testing.AllocsPerRun(1, func() {
-		if !firstRun {
-			firstRun = true
-			return
-		}
-		f()
+	var memstats runtime.MemStats
+	runtime.ReadMemStats(&memstats)
+	mallocs := memstats.Mallocs
+
+	f()
+
+	runtime.ReadMemStats(&memstats)
+	return int(memstats.Mallocs - mallocs)
+}
+
+var allocSink *int
+
+func Test_allocsPerSingleRun_withPausedParallelTest(t *testing.T) {
+	t.Run("paused parallel sibling", func(t *testing.T) {
+		t.Parallel()
+	})
+
+	assert.Equal(t, 1, allocsPerSingleRun(func() {
+		allocSink = new(int)
 	}))
 }
