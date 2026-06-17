@@ -1552,14 +1552,14 @@ func allocsPerSingleRun(f func()) int {
 	return int(memstats.Mallocs - mallocs)
 }
 
-var allocSink *int
-
 func Test_allocsPerSingleRun_withPausedParallelTest(t *testing.T) {
 	t.Run("paused parallel sibling", func(t *testing.T) {
 		t.Parallel()
 	})
 
+	var allocSink *int
 	assert.Equal(t, 1, allocsPerSingleRun(func() {
 		allocSink = new(int)
 	}))
+	runtime.KeepAlive(allocSink)
 }
