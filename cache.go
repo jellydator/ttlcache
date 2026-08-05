@@ -649,6 +649,16 @@ func (c *Cache[K, V]) Metrics() Metrics {
 	return c.metrics
 }
 
+// Cost returns the total cost of all items currently stored in the cache.
+// Note: Cost tracking is only active when a maximum cost limit is configured.
+// If no maximum cost is set, this method will always return 0.
+func (c *Cache[K, V]) Cost() uint64 {
+	c.items.mu.RLock()
+	defer c.items.mu.RUnlock()
+
+	return c.cost
+}
+
 // Start starts an automatic cleanup process that periodically deletes
 // expired items.
 // It blocks until Stop is called.

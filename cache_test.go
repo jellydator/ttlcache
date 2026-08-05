@@ -1091,6 +1091,14 @@ func Test_Cache_Metrics(t *testing.T) {
 	assert.Equal(t, Metrics{Evictions: 10}, cache.Metrics())
 }
 
+func Test_Cache_Cost(t *testing.T) {
+	cache := Cache[string, string]{
+		cost: 10,
+	}
+
+	assert.Equal(t, uint64(10), cache.Cost())
+}
+
 func Test_Cache_Start(t *testing.T) {
 	cache := prepCache(0, 0)
 	cache.stopCh = make(chan struct{})
