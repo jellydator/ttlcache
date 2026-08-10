@@ -659,6 +659,12 @@ func (c *Cache[K, V]) Cost() uint64 {
 	return c.cost
 }
 
+func (c *Cache[K, V]) Running() bool {
+	c.stopMu.Lock()
+	defer c.stopMu.Unlock()
+	return !c.stopped
+}
+
 // Start starts an automatic cleanup process that periodically deletes
 // expired items.
 // It blocks until Stop is called.
