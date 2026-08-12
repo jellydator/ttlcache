@@ -659,6 +659,11 @@ func (c *Cache[K, V]) Cost() uint64 {
 	return c.cost
 }
 
+// Running returns true if the Start method has started.  This is useful
+// so that a caller doing `go c.Start` can ensure that the new goroutine
+// has actually started running.  Unless the caller waits to see that the
+// goroutine is running, a subsequent call to `Stop` might occur before
+// the goroutine gets scheduled, preventing proper shutdown of the goroutine.
 func (c *Cache[K, V]) Running() bool {
 	c.stopMu.Lock()
 	defer c.stopMu.Unlock()
