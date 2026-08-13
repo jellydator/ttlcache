@@ -199,5 +199,43 @@ func main() {
 See the [examples](https://github.com/jellydator/ttlcache/tree/v3/examples)
 directory for complete applications demonstrating how to use `ttlcache`.
 
+## Projects using TTLCache
+Below is a list of some well-known projects that use `ttlcache`:
+- [TiDB](https://github.com/pingcap/tidb): An open-source, cloud-native,
+  distributed SQL database designed for high availability, scalability,
+  and strong consistency.
+- [HashiCorp Vault](https://github.com/hashicorp/vault): A tool for secrets
+  management, encryption as a service, and privileged access management.
+- [File Browser](https://github.com/filebrowser/filebrowser): A file
+  managing interface that can be used to upload, delete, preview and
+  edit files within a specified directory.
+- [Tailscale](https://github.com/tailscale/tailscale): The easiest,
+  most secure way to use WireGuard and 2FA.
+- [authentik](https://github.com/goauthentik/authentik): An open-source
+  Identity Provider (IdP) for modern SSO.
+- [Navidrome](https://github.com/navidrome/navidrome): Your personal
+  streaming service.
+- [LiveKit](https://github.com/livekit/livekit): An end-to-end realtime
+  stack for connecting humans and AI.
+- [Owncast](https://github.com/owncast/owncast): A self-hosted live
+  video streaming and chat server.
+- [OpenTelemetry Collector Contrib](https://github.com/open-telemetry/opentelemetry-collector-contrib):
+  The contrib repository for the OpenTelemetry Collector.
+- [Datadog Agent](https://github.com/DataDog/datadog-agent): The main
+  repository for the Datadog Agent.
+- [Erigon](https://github.com/erigontech/erigon): An Ethereum
+  implementation on the efficiency frontier.
+- [Microsoft Retina](https://github.com/microsoft/retina): An eBPF
+  distributed networking observability tool for Kubernetes.
+- [ByteDance Elkeid](https://github.com/bytedance/Elkeid): An open-source
+  security solution for hosts, containers, K8s, and serverless workloads.
+- [Polygon Bor](https://github.com/0xPolygon/bor): The official Go
+  implementation of the Polygon blockchain.
+- [Azure Service Operator](https://github.com/Azure/azure-service-operator):
+  A Kubernetes operator that allows Azure resources to be created
+  using kubectl.
+
+...and [thousands more](https://github.com/jellydator/ttlcache/network/dependents).
+
 ## License
 [MIT](LICENSE)
