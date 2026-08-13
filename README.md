@@ -1,18 +1,19 @@
-## TTLCache - an in-memory cache with item expiration and generics
+# TTLCache - an in-memory cache with item expiration and generics
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/jellydator/ttlcache/v3.svg)](https://pkg.go.dev/github.com/jellydator/ttlcache/v3)
 [![Build Status](https://github.com/jellydator/ttlcache/actions/workflows/go.yml/badge.svg)](https://github.com/jellydator/ttlcache/actions/workflows/go.yml)
-[![Coverage Status](https://coveralls.io/repos/github/jellydator/ttlcache/badge.svg?branch=master)](https://coveralls.io/github/jellydator/ttlcache?branch=master)
+[![Coverage Status](https://coveralls.io/repos/github/jellydator/ttlcache/badge.svg?branch=v3)](https://coveralls.io/github/jellydator/ttlcache?branch=v3)
 
 ## Features
-- Simple API
-- Type parameters
-- Item expiration and automatic deletion
-- Automatic expiration time extension on each `Get` call
-- `Loader` interface that may be used to load/lazily initialize missing cache items
-- Thread safety
+- Simple API built with type parameters (generics)
+- Per-item or cache-wide TTL with automatic deletion of expired items
+- Automatic expiration time extension on each `Get` call (can be disabled)
+- `Loader` interface that may be used to load/lazily initialize missing
+  cache items, with optional duplicate call suppression
+- Capacity limits based on the number of items or their custom-calculated cost
 - Event handlers (insertion, update, and eviction)
 - Metrics
+- Thread safety
 
 ## Installation
 ```
@@ -20,21 +21,20 @@ go get github.com/jellydator/ttlcache/v3
 ```
 
 ## Usage
-The main type of `ttlcache` is `Cache`. It represents a single 
-in-memory data store.
-
-To create a new instance of `ttlcache.Cache`, the `ttlcache.New()` function 
-should be called:
+All cache operations are provided by the `Cache` type, which represents
+a single in-memory data store. To create a new instance of it, the
+`ttlcache.New()` function needs to be called:
 ```go
 func main() {
 	cache := ttlcache.New[string, string]()
 }
 ```
 
-Note that by default, a new cache instance does not let any of its
-items to expire or be automatically deleted. However, this feature
-can be activated by passing a few additional options into the 
-`ttlcache.New()` function and calling the `cache.Start()` method:
+By default, items never expire and are never removed automatically.
+Expiration is enabled by setting a default TTL with the `ttlcache.WithTTL()`
+option and starting the automatic cleanup process with the `cache.Start()`
+method. Since `cache.Start()` blocks until `cache.Stop()` is called, it is
+usually launched on a separate goroutine:
 ```go
 func main() {
 	cache := ttlcache.New[string, string](
@@ -42,16 +42,16 @@ func main() {
 	)
 
 	go cache.Start() // starts automatic expired item deletion
+	defer cache.Stop()
 }
 ```
 
-Even though the `cache.Start()` method handles expired item deletion well,
-there may be times when the system that uses `ttlcache` needs to determine 
-when to delete the expired items itself. For example, it may need to 
-delete them only when the resource load is at its lowest (e.g., after 
-midnight, when the number of users/HTTP requests drops). So, in situations 
-like these, instead of calling `cache.Start()`, the system could 
-periodically call `cache.DeleteExpired()`:
+Automatic cleanup suits most applications, but some may need to control
+the exact timing of expired item deletion. For example, a system may
+want to delete such items only when its resource load is at its lowest
+(e.g., after midnight, when the number of users/HTTP requests drops).
+In cases like these, the `cache.DeleteExpired()` method can be called
+periodically instead of starting the cleanup process:
 ```go
 func main() {
 	cache := ttlcache.New[string, string](
@@ -65,8 +65,10 @@ func main() {
 }
 ```
 
-The data stored in `ttlcache.Cache` can be retrieved, checked and updated with 
-`Set`, `Get`, `Delete`, `Has` etc. methods:
+The data stored in the cache can be inserted, retrieved, checked, and
+deleted with `Set`, `Get`, `Has`, `Delete`, and other related methods.
+Each new item receives a TTL: a specific duration, `ttlcache.DefaultTTL`
+to use the cache's default one, or `ttlcache.NoTTL` to never expire:
 ```go
 func main() {
 	cache := ttlcache.New[string, string](
@@ -76,30 +78,33 @@ func main() {
 	// insert data
 	cache.Set("first", "value1", ttlcache.DefaultTTL)
 	cache.Set("second", "value2", ttlcache.NoTTL)
-	cache.Set("third", "value3", ttlcache.DefaultTTL)
+	cache.Set("third", "value3", time.Minute)
 
 	// retrieve data
 	item := cache.Get("first")
 	fmt.Println(item.Value(), item.ExpiresAt())
 
-	// check key 
+	// check whether data exists
 	ok := cache.Has("third")
-	
+
 	// delete data
 	cache.Delete("second")
 	cache.DeleteExpired()
 	cache.DeleteAll()
 
-	// retrieve data if in cache otherwise insert data
-	item, retrieved := cache.GetOrSet("fourth", "value4", WithTTL[string, string](ttlcache.DefaultTTL))
+	// retrieve data if it exists, insert it otherwise
+	item, found := cache.GetOrSet("fourth", "value4", ttlcache.WithTTL[string, string](time.Minute))
 
 	// retrieve and delete data
 	item, present := cache.GetAndDelete("fourth")
 }
 ```
 
-To subscribe to insertion, update and eviction events, `cache.OnInsertion()`, `cache.OnUpdate()` and 
-`cache.OnEviction()` methods should be used:
+The `cache.OnInsertion()`, `cache.OnUpdate()`, and `cache.OnEviction()`
+methods subscribe to the cache's events. The subscribed functions are
+executed on separate goroutines, so they never block the cache's
+operations, and each subscription method returns a function that can
+be called to unsubscribe:
 ```go
 func main() {
 	cache := ttlcache.New[string, string](
@@ -113,7 +118,7 @@ func main() {
 	cache.OnUpdate(func(ctx context.Context, item *ttlcache.Item[string, string]) {
 		fmt.Println(item.Value(), item.ExpiresAt())
 	})
-	cache.OnEviction(func(ctx context.Context, reason ttlcache.EvictionReason, item *ttlcache.Item[string, string]) {
+	unsubscribe := cache.OnEviction(func(ctx context.Context, reason ttlcache.EvictionReason, item *ttlcache.Item[string, string]) {
 		if reason == ttlcache.EvictionReasonCapacityReached {
 			fmt.Println(item.Key(), item.Value())
 		}
@@ -121,17 +126,22 @@ func main() {
 
 	cache.Set("first", "value1", ttlcache.DefaultTTL)
 	cache.DeleteAll()
+
+	// stop receiving eviction events
+	unsubscribe()
 }
 ```
 
-To load data when the cache does not have it, a custom or
-existing implementation of `ttlcache.Loader` can be used:
+A custom or existing implementation of the `ttlcache.Loader` interface
+can be used to load or lazily initialize data on cache misses. The
+`Get` method calls the loader whenever the requested item is not found
+and returns whatever the loader returns:
 ```go
 func main() {
 	loader := ttlcache.LoaderFunc[string, string](
 		func(c *ttlcache.Cache[string, string], key string) *ttlcache.Item[string, string] {
 			// load from file/make an HTTP request
-			item := c.Set("key from file", "value from file")
+			item := c.Set(key, "value from file", ttlcache.DefaultTTL)
 			return item
 		},
 	)
@@ -143,29 +153,51 @@ func main() {
 }
 ```
 
-To restrict the cache's capacity based on criteria beyond the number
-of items it can hold, the `ttlcache.WithMaxCost` option allows for
-implementing custom strategies. The following example shows how to limit
-memory usage for cached entries to ~5KiB.
+When multiple goroutines request the same missing item at once, the
+loader normally runs once for each of them. Wrapping it with
+`ttlcache.NewSuppressedLoader()` ensures that only one load operation
+is in-flight for a given key at a time, with all callers receiving
+its result:
 ```go
-import (
-    "github.com/jellydator/ttlcache"
-)
-
 func main() {
-    cache := ttlcache.New[string, string](
-        ttlcache.WithMaxCost[string, string](5120, func(item ttlcache.CostItem[string, string]) uint64 {
-            // Note: The below line doesn't include memory used by internal
-            // structures or string metadata for the key and the value.
-            return uint64(len(item.Key) + len(item.Value))
-        }), 
-    )
+	loader := ttlcache.LoaderFunc[string, string](
+		func(c *ttlcache.Cache[string, string], key string) *ttlcache.Item[string, string] {
+			// load from file/make an HTTP request
+			item := c.Set(key, "value from file", ttlcache.DefaultTTL)
+			return item
+		},
+	)
+	cache := ttlcache.New[string, string](
+		ttlcache.WithLoader[string, string](ttlcache.NewSuppressedLoader(loader, nil)),
+	)
 
-    cache.Set("first", "value1", ttlcache.DefaultTTL)
+	item := cache.Get("key from file")
+}
+```
+
+The cache's capacity can also be restricted by criteria other than the
+number of items. The `ttlcache.WithMaxCost()` option assigns each item
+a cost, calculated by a custom function, and evicts the least recently
+used items whenever the total cost exceeds the given limit. The
+following example limits the memory used by cached entries to ~5KiB:
+```go
+func main() {
+	cache := ttlcache.New[string, string](
+		ttlcache.WithMaxCost[string, string](5120, func(item ttlcache.CostItem[string, string]) uint64 {
+			// Note: the calculation below does not include the memory
+			// used by the internal structures or the string metadata of
+			// the key and the value.
+			return uint64(len(item.Key) + len(item.Value))
+		}),
+	)
+
+	cache.Set("first", "value1", ttlcache.DefaultTTL)
 }
 ```
 
 ## Examples
+See the [examples](https://github.com/jellydator/ttlcache/tree/v3/examples)
+directory for complete applications demonstrating how to use `ttlcache`.
 
-See the [example](https://github.com/jellydator/ttlcache/tree/v3/examples) 
-directory for applications demonstrating how to use `ttlcache`.
+## License
+[MIT](LICENSE)
