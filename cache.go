@@ -659,6 +659,17 @@ func (c *Cache[K, V]) Cost() uint64 {
 	return c.cost
 }
 
+// IsStarted returns true if the Start method has started and Stop has not called.
+// This is useful so that a caller doing `go c.Start` can ensure that the new
+// goroutine has actually started running.  Unless the caller waits to see that the
+// goroutine is running, a subsequent call to `Stop` might occur before
+// the goroutine gets scheduled, preventing proper shutdown of the goroutine.
+func (c *Cache[K, V]) IsStarted() bool {
+	c.stopMu.Lock()
+	defer c.stopMu.Unlock()
+	return !c.stopped
+}
+
 // Start starts an automatic cleanup process that periodically deletes
 // expired items.
 // It blocks until Stop is called.

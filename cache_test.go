@@ -315,7 +315,7 @@ func Test_Cache_set(t *testing.T) {
 			Metrics: Metrics{
 				Updates: 1,
 			},
-			UpdateCalled: true,
+			UpdateCalled:              true,
 			ExpectedTimerNotification: time.Minute,
 		},
 		"Set with new key and shortened TTL": {
@@ -324,7 +324,7 @@ func Test_Cache_set(t *testing.T) {
 			Metrics: Metrics{
 				Insertions: 1,
 			},
-			InsertCalled: true,
+			InsertCalled:              true,
 			ExpectedTimerNotification: time.Minute,
 		},
 	}
@@ -1164,6 +1164,19 @@ func Test_Cache_Stop(t *testing.T) {
 	cache.stopped = false
 	cache.Stop()
 	assert.Len(t, cache.stopCh, 1)
+}
+
+func Test_Cache_IsStarted(t *testing.T) {
+	cache := New[string, string](
+		WithTTL[string, string](time.Hour))
+
+	assert.False(t, cache.IsStarted())
+
+	go cache.Start()
+	assert.Eventually(t, cache.IsStarted, time.Second, time.Millisecond*100)
+
+	cache.Stop()
+	assert.False(t, cache.IsStarted())
 }
 
 func Test_Cache_OnInsertion(t *testing.T) {
