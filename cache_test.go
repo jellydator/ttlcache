@@ -1170,13 +1170,13 @@ func Test_Cache_Running(t *testing.T) {
 	cache := New[string, string](
 		WithTTL[string, string](time.Hour))
 
-	assert.False(t, cache.Running())
+	assert.False(t, cache.IsStarted())
 
 	go cache.Start()
-	assert.Eventually(t, cache.Running, time.Second, time.Millisecond*100)
+	assert.Eventually(t, cache.IsStarted, time.Second, time.Millisecond*100)
 
 	cache.Stop()
-	assert.False(t, cache.Running())
+	assert.False(t, cache.IsStarted())
 }
 
 func Test_Cache_OnInsertion(t *testing.T) {
