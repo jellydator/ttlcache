@@ -1166,7 +1166,7 @@ func Test_Cache_Stop(t *testing.T) {
 	assert.Len(t, cache.stopCh, 1)
 }
 
-func Test_Cache_Running(t *testing.T) {
+func Test_Cache_IsStarted(t *testing.T) {
 	cache := New[string, string](
 		WithTTL[string, string](time.Hour))
 
