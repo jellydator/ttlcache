@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"fmt"
+	"iter"
 	"sync"
 	"time"
 
@@ -639,6 +640,38 @@ func (c *Cache[K, V]) RangeBackwards(fn func(item *Item[K, V]) bool) {
 	}
 
 	c.items.mu.RUnlock()
+}
+
+// KeysSeq returns an iterator that yields the key of each unexpired item
+// in the cache. It is the lazy, range-over-func counterpart of Keys and
+// visits items in the same order as Range (from the most to the least
+// recently added or updated). Stopping the iteration early is supported.
+//
+// As with Range, the cache lock is not held while a key is yielded, so it
+// is safe to call other cache methods from within the loop.
+func (c *Cache[K, V]) KeysSeq() iter.Seq[K] {
+	return func(yield func(K) bool) {
+		c.Range(func(item *Item[K, V]) bool {
+			return yield(item.Key())
+		})
+	}
+}
+
+// ItemsSeq returns an iterator that yields the key and the item of each
+// unexpired item in the cache. It is the lazy, range-over-func counterpart
+// of Items and visits items in the same order as Range (from the most to
+// the least recently added or updated). Stopping the iteration early is
+// supported.
+//
+// As with Range, the cache lock is not held while an item is yielded, so it
+// is safe to call other cache methods from within the loop. Unlike Items, it
+// does not allocate an intermediate map.
+func (c *Cache[K, V]) ItemsSeq() iter.Seq2[K, *Item[K, V]] {
+	return func(yield func(K, *Item[K, V]) bool) {
+		c.Range(func(item *Item[K, V]) bool {
+			return yield(item.Key(), item)
+		})
+	}
 }
 
 // Metrics returns the metrics of the cache.
