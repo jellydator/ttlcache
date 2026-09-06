@@ -907,6 +907,14 @@ func Test_Cache_DeleteAll(t *testing.T) {
 	assert.Equal(t, 2, key4FnsCalls)
 }
 
+func Test_Cache_DeleteAll_Clears_Cost(t *testing.T) {
+	cache := prepCache(3, time.Hour, "1", "2")
+
+	cache.DeleteAll()
+
+	assert.Equal(t, uint64(0), cache.cost)
+}
+
 func Test_Cache_DeleteExpired(t *testing.T) {
 	var (
 		key1FnsCalls int
