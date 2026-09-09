@@ -593,52 +593,63 @@ func (c *Cache[K, V]) Items() map[K]*Item[K, V] {
 	return items
 }
 
-// Range calls fn for each unexpired item in the cache. If fn returns false,
-// Range stops the iteration.
-func (c *Cache[K, V]) Range(fn func(item *Item[K, V]) bool) {
-	c.items.mu.RLock()
-
-	// Check if cache is empty
-	if c.items.lru.Len() == 0 {
-		c.items.mu.RUnlock()
-		return
+// snapshotKeysUnsafe returns the keys of all items currently in the LRU
+// list, in their current list order. Must be called while holding (at
+// least) a read lock on c.items.mu.
+func (c *Cache[K, V]) snapshotKeysUnsafe(front bool) []K {
+	keys := make([]K, 0, c.items.lru.Len())
+	next := func(e *list.Element) *list.Element { return e.Next() }
+	start := c.items.lru.Front
+	if !front {
+		next = func(e *list.Element) *list.Element { return e.Prev() }
+		start = c.items.lru.Back
 	}
+	for item := start(); item != nil; item = next(item) {
+		keys = append(keys, item.Value.(*Item[K, V]).key)
+	}
+	return keys
+}
 
-	for item := c.items.lru.Front(); c.items.lru.Len() != 0 && item != c.items.lru.Back().Next(); item = item.Next() {
-		i := item.Value.(*Item[K, V])
+// rangeKeys calls fn for each unexpired item whose key is in keys, skipping
+// keys that are no longer present (e.g. evicted, deleted, or replaced while
+// the iteration was paused). Iterating over a key snapshot, rather than the
+// live LRU list, means concurrent Set/Touch calls (which reorder the list
+// via MoveToFront) cannot cause items to be skipped or visited twice.
+func (c *Cache[K, V]) rangeKeys(keys []K, fn func(item *Item[K, V]) bool) {
+	for _, key := range keys {
+		c.items.mu.RLock()
+		elem, ok := c.items.values[key]
+		if !ok {
+			c.items.mu.RUnlock()
+			continue
+		}
+		i := elem.Value.(*Item[K, V])
 		expired := i.isExpiredUnsafe()
 		c.items.mu.RUnlock() // unlock mutex so fn func can access it (if it needs to)
 		if !expired && !fn(i) {
 			return
 		}
-		c.items.mu.RLock()
 	}
+}
 
+// Range calls fn for each unexpired item in the cache. If fn returns false,
+// Range stops the iteration.
+func (c *Cache[K, V]) Range(fn func(item *Item[K, V]) bool) {
+	c.items.mu.RLock()
+	keys := c.snapshotKeysUnsafe(true)
 	c.items.mu.RUnlock()
+
+	c.rangeKeys(keys, fn)
 }
 
 // RangeBackwards calls fn for each unexpired item in the cache in reverse order.
 // If fn returns false, RangeBackwards stops the iteration.
 func (c *Cache[K, V]) RangeBackwards(fn func(item *Item[K, V]) bool) {
 	c.items.mu.RLock()
-
-	// Check if cache is empty
-	if c.items.lru.Len() == 0 {
-		c.items.mu.RUnlock()
-		return
-	}
-
-	for item := c.items.lru.Back(); c.items.lru.Len() != 0 && item != c.items.lru.Front().Prev(); item = item.Prev() {
-		i := item.Value.(*Item[K, V])
-		expired := i.isExpiredUnsafe()
-		c.items.mu.RUnlock() // unlock mutex so fn func can access it (if it needs to)
-		if !expired && !fn(i) {
-			return
-		}
-		c.items.mu.RLock()
-	}
-
+	keys := c.snapshotKeysUnsafe(false)
 	c.items.mu.RUnlock()
+
+	c.rangeKeys(keys, fn)
 }
 
 // Metrics returns the metrics of the cache.

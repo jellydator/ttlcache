@@ -1043,6 +1043,29 @@ func Test_Cache_Range(t *testing.T) {
 	})
 }
 
+// Test_Cache_Range_VisitsItemsReorderedDuringIteration is a regression test
+// for #205: calling Set/Touch on an item from within the Range callback
+// moves that item to the front of the LRU list. Range must still visit it
+// exactly once, even though its position relative to the iterator changed.
+func Test_Cache_Range_VisitsItemsReorderedDuringIteration(t *testing.T) {
+	c := New[string, int](WithTTL[string, int](time.Hour))
+	c.Set("key1", 1, DefaultTTL)
+	c.Set("key2", 2, DefaultTTL)
+	c.Set("key3", 3, DefaultTTL)
+	c.Set("key4", 4, DefaultTTL)
+
+	var visited []string
+	c.Range(func(item *Item[string, int]) bool {
+		visited = append(visited, item.Key())
+		if item.Value() == 4 {
+			c.Set("key3", 3, DefaultTTL)
+		}
+		return true
+	})
+
+	assert.ElementsMatch(t, []string{"key1", "key2", "key3", "key4"}, visited)
+}
+
 func Test_Cache_RangeBackwards(t *testing.T) {
 	c := prepCache(0, DefaultTTL)
 	addExpiredCacheItems(c, "1")
