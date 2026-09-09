@@ -1083,6 +1083,87 @@ func Test_Cache_RangeBackwards(t *testing.T) {
 	})
 }
 
+func Test_Cache_KeysSeq(t *testing.T) {
+	c := prepCache(0, DefaultTTL, "1", "2", "3", "4", "5")
+	addExpiredCacheItems(c, "6")
+
+	// full iteration, expired items excluded, order matches Range
+	var results []string
+	for key := range c.KeysSeq() {
+		results = append(results, key)
+	}
+	assert.Equal(t, []string{"5", "4", "3", "2", "1"}, results)
+
+	// early stop via break
+	results = nil
+	for key := range c.KeysSeq() {
+		results = append(results, key)
+		if key == "4" {
+			break
+		}
+	}
+	assert.Equal(t, []string{"5", "4"}, results)
+
+	// empty cache does not panic and yields nothing
+	emptyCache := New[string, string]()
+	assert.NotPanics(t, func() {
+		for range emptyCache.KeysSeq() {
+			t.Fatal("empty cache must not yield any keys")
+		}
+	})
+
+	// calling other cache methods during iteration is safe
+	deletedCache := New[string, string]()
+	addTTLCacheItems(deletedCache, time.Minute, "6", "3", "4")
+	assert.NotPanics(t, func() {
+		for range deletedCache.KeysSeq() {
+			deletedCache.DeleteAll()
+		}
+	})
+}
+
+func Test_Cache_ItemsSeq(t *testing.T) {
+	c := prepCache(0, DefaultTTL, "1", "2", "3", "4", "5")
+	addExpiredCacheItems(c, "6")
+
+	// full iteration, expired items excluded, order matches Range,
+	// and the yielded key matches the item's own key
+	var results []string
+	for key, item := range c.ItemsSeq() {
+		require.NotNil(t, item)
+		assert.Equal(t, key, item.Key())
+		results = append(results, key)
+	}
+	assert.Equal(t, []string{"5", "4", "3", "2", "1"}, results)
+
+	// early stop via break
+	results = nil
+	for key := range c.ItemsSeq() {
+		results = append(results, key)
+		if key == "4" {
+			break
+		}
+	}
+	assert.Equal(t, []string{"5", "4"}, results)
+
+	// empty cache does not panic and yields nothing
+	emptyCache := New[string, string]()
+	assert.NotPanics(t, func() {
+		for range emptyCache.ItemsSeq() {
+			t.Fatal("empty cache must not yield any items")
+		}
+	})
+
+	// calling other cache methods during iteration is safe
+	deletedCache := New[string, string]()
+	addTTLCacheItems(deletedCache, time.Minute, "6", "3", "4")
+	assert.NotPanics(t, func() {
+		for range deletedCache.ItemsSeq() {
+			deletedCache.DeleteAll()
+		}
+	})
+}
+
 func Test_Cache_Metrics(t *testing.T) {
 	cache := Cache[string, string]{
 		metrics: Metrics{Evictions: 10},

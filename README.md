@@ -195,6 +195,29 @@ func main() {
 }
 ```
 
+All unexpired items can be iterated over with the `Range` and
+`RangeBackwards` methods, or, on Go 1.23 and above, with the
+`KeysSeq` and `ItemsSeq` range-over-func iterators. The latter are the
+lazy counterparts of `Keys` and `Items`: they visit items in the same
+order as `Range` (from the most to the least recently added or updated)
+without allocating an intermediate slice or map, and support stopping
+early with `break`:
+```go
+func main() {
+	cache := ttlcache.New[string, string]()
+	cache.Set("first", "value1", ttlcache.DefaultTTL)
+	cache.Set("second", "value2", ttlcache.DefaultTTL)
+
+	for key := range cache.KeysSeq() {
+		fmt.Println(key)
+	}
+
+	for key, item := range cache.ItemsSeq() {
+		fmt.Println(key, item.Value())
+	}
+}
+```
+
 ## Examples
 See the [examples](https://github.com/jellydator/ttlcache/tree/v3/examples)
 directory for complete applications demonstrating how to use `ttlcache`.
