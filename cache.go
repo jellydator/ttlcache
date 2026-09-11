@@ -345,6 +345,10 @@ func (c *Cache[K, V]) evict(reason EvictionReason, elems ...*list.Element) {
 	c.items.values = make(map[K]*list.Element)
 	c.items.lru.Init()
 	c.items.expQueue = newExpirationQueue[K, V]()
+
+	if c.options.maxCost != 0 {
+		c.cost = 0
+	}
 }
 
 // delete deletes an item by the provided key.
