@@ -106,3 +106,47 @@ crap:
 		END { exit bad }' \
 	|| { echo "crap: FAILED (score above $(CRAP_THRESHOLD))"; exit 1; }; \
 	echo "crap: clean"
+
+# ── Mutation testing ──────────────────────────────────────────────────────────
+# gremlins mutates the source (negated conditionals, swapped arithmetic
+# operators, inverted negatives, …) and reruns the unit tests once per mutant:
+# a mutant the suite fails to kill is a behaviour change the tests cannot see,
+# which is exactly the gap line coverage cannot measure. Expensive by
+# construction (a test run per mutant) — scope with MUTATION_PKG for the
+# day-to-day loop:
+#   make test-mutation MUTATION_PKG=./subpkg
+# GOWORK=off keeps the per-mutant builds hermetic: with the workspace active,
+# gremlins would resolve proveder siblings from their working trees instead of
+# the pinned releases. GOFLAGS=-count=1 is LOAD-BEARING: gremlins sizes the
+# per-mutant timeout from a baseline `go test` run, and a warm test cache
+# collapses that baseline to ~0s, flipping every mutant to a false TIMED OUT.
+# The generous coefficient absorbs the remaining ~2x baseline swing from
+# build-cache warmth; mutants run serially, so the slack is cheap.
+MUTATION_PKG ?= .
+MUTATION_TIMEOUT_COEFFICIENT ?= 20
+# Gates, in percent; 0 disables the gate and the run is report-only.
+# MUTATION_MIN_EFFICACY:  killed / runnable mutants.
+# MUTATION_MIN_COVERAGE:  runnable / total mutants (tests reach the mutant).
+MUTATION_MIN_EFFICACY ?= 0
+MUTATION_MIN_COVERAGE ?= 0
+
+.PHONY: test-mutation
+test-mutation: ## Mutation testing (gremlins); scope with MUTATION_PKG=./path
+	@echo "executing mutation tests ($(MUTATION_PKG))"
+	@if ! command -v gremlins >/dev/null 2>&1; then \
+		echo "  skipped: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.5.0"; \
+		exit 1; \
+	fi
+	GOWORK=off GOFLAGS=-count=1 gremlins unleash \
+		--timeout-coefficient $(MUTATION_TIMEOUT_COEFFICIENT) \
+		--threshold-efficacy $(MUTATION_MIN_EFFICACY) \
+		--threshold-mcover $(MUTATION_MIN_COVERAGE) \
+		$(MUTATION_PKG)
+
+.PHONY: test-mutation-dry
+test-mutation-dry: ## List the mutants without running tests (fast census)
+	@if ! command -v gremlins >/dev/null 2>&1; then \
+		echo "  skipped: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.5.0"; \
+		exit 1; \
+	fi
+	GOWORK=off gremlins unleash --dry-run $(MUTATION_PKG)
