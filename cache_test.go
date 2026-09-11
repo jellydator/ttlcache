@@ -562,55 +562,73 @@ func Test_Cache_get(t *testing.T) {
 }
 
 func Test_Cache_evict(t *testing.T) {
-	var (
-		key1FnsCalls int
-		key2FnsCalls int
-		key3FnsCalls int
-		key4FnsCalls int
-	)
+	cc := map[string]struct {
+		MaxCost uint64
+	} {
+		"evict without MaxCost": {
+			MaxCost: 0,
+		},
+		"evict with MaxCost": {
+			MaxCost: 5,
+		},
+	};
 
-	cache := prepCache(0, time.Hour, "1", "2", "3", "4")
-	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
-		assert.Equal(t, EvictionReasonDeleted, r)
-		switch item.key {
-		case "1":
-			key1FnsCalls++
-		case "2":
-			key2FnsCalls++
-		case "3":
-			key3FnsCalls++
-		case "4":
-			key4FnsCalls++
-		}
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			var (
+				key1FnsCalls int
+				key2FnsCalls int
+				key3FnsCalls int
+				key4FnsCalls int
+			)
+
+			cache := prepCache(c.MaxCost, time.Hour, "1", "2", "3", "4")
+			cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
+				assert.Equal(t, EvictionReasonDeleted, r)
+				switch item.key {
+				case "1":
+					key1FnsCalls++
+				case "2":
+					key2FnsCalls++
+				case "3":
+					key3FnsCalls++
+				case "4":
+					key4FnsCalls++
+				}
+			}
+			cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
+
+			// delete only specified
+			cache.evict(EvictionReasonDeleted, cache.items.lru.Back(), cache.items.lru.Back().Prev())
+
+			assert.Equal(t, 2, key1FnsCalls)
+			assert.Equal(t, 2, key2FnsCalls)
+			assert.Zero(t, key3FnsCalls)
+			assert.Zero(t, key4FnsCalls)
+			assert.Len(t, cache.items.values, 2)
+			assert.NotContains(t, cache.items.values, "1")
+			assert.NotContains(t, cache.items.values, "2")
+			assert.Equal(t, uint64(2), cache.metrics.Evictions)
+
+			// delete all
+			key1FnsCalls, key2FnsCalls = 0, 0
+			cache.metrics.Evictions = 0
+
+			cache.evict(EvictionReasonDeleted)
+
+			assert.Zero(t, key1FnsCalls)
+			assert.Zero(t, key2FnsCalls)
+			assert.Equal(t, 2, key3FnsCalls)
+			assert.Equal(t, 2, key4FnsCalls)
+			assert.Empty(t, cache.items.values)
+			assert.NotContains(t, cache.items.values, "3")
+			assert.NotContains(t, cache.items.values, "4")
+			assert.Equal(t, uint64(2), cache.metrics.Evictions)
+			if c.MaxCost > 0 {
+				assert.Zero(t, cache.cost)
+			}
+		})
 	}
-	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
-
-	// delete only specified
-	cache.evict(EvictionReasonDeleted, cache.items.lru.Back(), cache.items.lru.Back().Prev())
-
-	assert.Equal(t, 2, key1FnsCalls)
-	assert.Equal(t, 2, key2FnsCalls)
-	assert.Zero(t, key3FnsCalls)
-	assert.Zero(t, key4FnsCalls)
-	assert.Len(t, cache.items.values, 2)
-	assert.NotContains(t, cache.items.values, "1")
-	assert.NotContains(t, cache.items.values, "2")
-	assert.Equal(t, uint64(2), cache.metrics.Evictions)
-
-	// delete all
-	key1FnsCalls, key2FnsCalls = 0, 0
-	cache.metrics.Evictions = 0
-
-	cache.evict(EvictionReasonDeleted)
-
-	assert.Zero(t, key1FnsCalls)
-	assert.Zero(t, key2FnsCalls)
-	assert.Equal(t, 2, key3FnsCalls)
-	assert.Equal(t, 2, key4FnsCalls)
-	assert.Empty(t, cache.items.values)
-	assert.NotContains(t, cache.items.values, "3")
-	assert.NotContains(t, cache.items.values, "4")
-	assert.Equal(t, uint64(2), cache.metrics.Evictions)
 }
 
 func Test_Cache_Set(t *testing.T) {
@@ -876,43 +894,53 @@ func Test_Cache_GetAndDelete(t *testing.T) {
 }
 
 func Test_Cache_DeleteAll(t *testing.T) {
-	var (
-		key1FnsCalls int
-		key2FnsCalls int
-		key3FnsCalls int
-		key4FnsCalls int
-	)
+	cc := map[string]struct {
+		MaxCost uint64
+	} {
+		"DeleteAll without MaxCost": {
+			MaxCost: 0,
+		},
+		"DeleteAll with MaxCost": {
+			MaxCost: 5,
+		},
+	};
 
-	cache := prepCache(0, time.Hour, "1", "2", "3", "4")
-	cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
-		assert.Equal(t, EvictionReasonDeleted, r)
-		switch item.key {
-		case "1":
-			key1FnsCalls++
-		case "2":
-			key2FnsCalls++
-		case "3":
-			key3FnsCalls++
-		case "4":
-			key4FnsCalls++
-		}
+	for cn, c := range cc {
+		t.Run(cn, func(t *testing.T) {
+			var (
+				key1FnsCalls int
+				key2FnsCalls int
+				key3FnsCalls int
+				key4FnsCalls int
+			)
+
+			cache := prepCache(c.MaxCost, time.Hour, "1", "2", "3", "4")
+			cache.events.eviction.fns[1] = func(r EvictionReason, item *Item[string, string]) {
+				assert.Equal(t, EvictionReasonDeleted, r)
+				switch item.key {
+				case "1":
+					key1FnsCalls++
+				case "2":
+					key2FnsCalls++
+				case "3":
+					key3FnsCalls++
+				case "4":
+					key4FnsCalls++
+				}
+			}
+			cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
+
+			cache.DeleteAll()
+			assert.Empty(t, cache.items.values)
+			assert.Equal(t, 2, key1FnsCalls)
+			assert.Equal(t, 2, key2FnsCalls)
+			assert.Equal(t, 2, key3FnsCalls)
+			assert.Equal(t, 2, key4FnsCalls)
+			if c.MaxCost > 0 {
+				assert.Zero(t, cache.cost)
+			}
+		})
 	}
-	cache.events.eviction.fns[2] = cache.events.eviction.fns[1]
-
-	cache.DeleteAll()
-	assert.Empty(t, cache.items.values)
-	assert.Equal(t, 2, key1FnsCalls)
-	assert.Equal(t, 2, key2FnsCalls)
-	assert.Equal(t, 2, key3FnsCalls)
-	assert.Equal(t, 2, key4FnsCalls)
-}
-
-func Test_Cache_DeleteAll_Clears_Cost(t *testing.T) {
-	cache := prepCache(3, time.Hour, "1", "2")
-
-	cache.DeleteAll()
-
-	assert.Equal(t, uint64(0), cache.cost)
 }
 
 func Test_Cache_DeleteExpired(t *testing.T) {
