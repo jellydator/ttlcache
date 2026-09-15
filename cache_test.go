@@ -272,6 +272,18 @@ func Test_Cache_set(t *testing.T) {
 			},
 			UpdateCalled: true,
 		},
+		// existing items cost 15+19+13=47; replacing existingKey's value
+		// (19) with "value123" (8) lands on exactly 36 — at the cap, which
+		// must NOT evict (only strictly exceeding it does).
+		"Set with existing key and cost exactly at max": {
+			MaxCost: 36,
+			Key:     existingKey,
+			TTL:     DefaultTTL,
+			Metrics: Metrics{
+				Updates: 1,
+			},
+			UpdateCalled: true,
+		},
 		"Set with existing key and no eviction": {
 			MaxCost: 50,
 			Key:     existingKey,
@@ -1379,7 +1391,9 @@ func Test_NewSuppressedLoader(t *testing.T) {
 	sl.loader.Load(nil, "")
 
 	assert.True(t, called)
-	assert.Equal(t, group, sl.group)
+	// Same, not Equal: two zero-value groups are deep-equal, so Equal
+	// would not notice the provided group being replaced.
+	assert.Same(t, group, sl.group)
 
 	// uses the provided loader and automatically creates a new instance
 	// of *singleflight.Group as nil parameter is passed
@@ -1392,7 +1406,7 @@ func Test_NewSuppressedLoader(t *testing.T) {
 	sl.loader.Load(nil, "")
 
 	assert.True(t, called)
-	assert.NotNil(t, group, sl.group)
+	assert.NotNil(t, sl.group)
 }
 
 func Test_SuppressedLoader_Load(t *testing.T) {
