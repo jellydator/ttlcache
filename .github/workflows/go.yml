@@ -11,9 +11,10 @@ jobs:
         go-version: '1.26.5'
     - name: Checkout code
       uses: actions/checkout@v4
-    - name: Run tests
-      run: go test -race -shuffle on -timeout 1m -coverprofile=covprofile ./...
+    # Tests + crap4go gate in one run; crap4go writes the coverage profile.
+    - name: Run tests + CRAP gate
+      run: make crap CRAP_TEST_CMD="go test -race -shuffle on -timeout 1m ./..."
     - name: Send coverage 
       uses: shogo82148/actions-goveralls@v1
       with:
-        path-to-profile: covprofile 
+        path-to-profile: target/coverage/coverage.out

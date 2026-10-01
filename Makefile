@@ -55,7 +55,6 @@ lint: ## Static analysis: correctness (vet), simplifications (staticcheck), mode
 	else \
 		echo "  skipped: go install golang.org/x/tools/gopls@latest"; rc=1; \
 	fi; \
-	$(MAKE) --no-print-directory crap || rc=1; \
 	if [ $$rc -eq 0 ]; then echo "lint: clean"; fi; \
 	exit $$rc
 
@@ -87,10 +86,16 @@ CRAP_THRESHOLD ?= 15
 # threshold gate below still scans EVERY row.
 CRAP_MAX_ROWS ?= 25
 
+# The command crap4go runs to collect coverage: the unit tests themselves,
+# so CI's test workflow runs `make crap` (tests + CRAP gate in ONE test run)
+# and `make lint` stays static analysis only.
+CRAP_TEST_CMD ?= go test -cover -race ./...
+
 .PHONY: crap
 crap:
 	@echo "==> crap4go (CRAP: complexity vs coverage, worst first; threshold $(CRAP_THRESHOLD))"; \
-	out="$$(go run github.com/unclebob/crap4go/cmd/crap4go@latest)" || { printf '%s\n' "$$out"; exit 1; }; \
+	out="$$(go run github.com/unclebob/crap4go/cmd/crap4go@latest --test-command "$(CRAP_TEST_CMD)")" || { printf '%s\n' "$$out"; exit 1; }; \
+	printf '%s\n' "$$out" | sed '/^CRAP Report/,$$d'; \
 	report="$$(printf '%s\n' "$$out" | sed -n '/^CRAP Report/,$$p' | awk 'NR <= 4 || $$2 != "mocks"')"; \
 	display="$$(printf '%s\n' "$$report" | awk -v rows=$(CRAP_MAX_ROWS) ' \
 		NR <= 4 { print; next } \
