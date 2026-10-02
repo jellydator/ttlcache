@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1136,57 +1137,115 @@ func Test_Cache_Cost(t *testing.T) {
 }
 
 func Test_Cache_Start(t *testing.T) {
-	cache := prepCache(0, 0)
-	cache.stopCh = make(chan struct{})
+	cc := map[string]func(t *testing.T){
+		"Expiration event loop": func(t *testing.T) {
+			cache := prepCache(0, 0)
+			cache.stopCh = make(chan struct{})
 
-	addExpiredCacheItems(cache, "1")
-	time.Sleep(time.Millisecond) // force expiration
+			addExpiredCacheItems(cache, "1")
+			time.Sleep(time.Millisecond) // force expiration
 
-	fn := func(r EvictionReason, _ *Item[string, string]) {
-		go func() {
-			assert.Equal(t, EvictionReasonExpired, r)
+			fn := func(r EvictionReason, _ *Item[string, string]) {
+				go func() {
+					assert.Equal(t, EvictionReasonExpired, r)
 
-			cache.metricsMu.RLock()
-			v := cache.metrics.Evictions
-			cache.metricsMu.RUnlock()
+					cache.metricsMu.RLock()
+					v := cache.metrics.Evictions
+					cache.metricsMu.RUnlock()
 
-			switch v {
-			case 1:
-				cache.items.mu.Lock()
-				addExpiredCacheItems(cache, "2")
-				cache.items.mu.Unlock()
-				cache.options.ttl = time.Hour
-				cache.items.timerCh <- time.Millisecond
-			case 2:
-				cache.items.mu.Lock()
-				addTTLCacheItems(cache, time.Second, "3")
-				addTTLCacheItems(cache, NoTTL, "4")
-				cache.items.mu.Unlock()
-				cache.items.timerCh <- time.Millisecond
-			default:
-				close(cache.stopCh)
+					switch v {
+					case 1:
+						cache.items.mu.Lock()
+						addExpiredCacheItems(cache, "2")
+						cache.items.mu.Unlock()
+						cache.options.ttl = time.Hour
+						cache.items.timerCh <- time.Millisecond
+					case 2:
+						cache.items.mu.Lock()
+						addTTLCacheItems(cache, time.Second, "3")
+						addTTLCacheItems(cache, NoTTL, "4")
+						cache.items.mu.Unlock()
+						cache.items.timerCh <- time.Millisecond
+					default:
+						close(cache.stopCh)
+					}
+				}()
 			}
-		}()
+			cache.events.eviction.fns[1] = fn
+
+			cache.Start()
+
+			cache.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[string, string]))
+			cache.stopCh = make(chan struct{})
+			cache.stopped = true
+
+			go cache.Start()
+			go cache.Start() // should be no-op
+
+			assert.Eventually(t, func() bool {
+				cache.stopMu.Lock()
+				defer cache.stopMu.Unlock()
+				return !cache.stopped
+			}, time.Second, time.Millisecond*100)
+
+			assert.NotPanics(t, cache.Stop)
+		},
+		"Stop before start prevents loop from running": func(t *testing.T) {
+			c := New[string, int](WithTTL[string, int](time.Minute))
+			c.Stop()
+			assert.False(t, c.IsStarted())
+
+			done := make(chan struct{})
+			go func() {
+				c.Start()
+				close(done)
+			}()
+
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("Start did not return after Stop was called")
+			}
+
+			assert.False(t, c.IsStarted())
+		},
+		"Concurrent start and stop terminates cleanly": func(t *testing.T) {
+			for i := 0; i < 200; i++ {
+				c := New[string, int](WithTTL[string, int](time.Minute))
+				go c.Start()
+				c.Stop()
+			}
+			time.Sleep(200 * time.Millisecond)
+			buf := make([]byte, 1<<22)
+			n := runtime.Stack(buf, true)
+			if left := strings.Count(string(buf[:n]), ").Start("); left > 0 {
+				t.Fatalf("%d of 200 Start loops still running after Stop", left)
+			}
+		},
+		"Parallel start and stop calls do not deadlock": func(t *testing.T) {
+			for i := 0; i < 50; i++ {
+				c := New[string, int](WithTTL[string, int](time.Minute))
+				var wg sync.WaitGroup
+				for j := 0; j < 5; j++ {
+					wg.Add(2)
+					go func() {
+						defer wg.Done()
+						c.Start()
+					}()
+					go func() {
+						defer wg.Done()
+						c.Stop()
+					}()
+				}
+				wg.Wait()
+				assert.False(t, c.IsStarted())
+			}
+		},
 	}
-	cache.events.eviction.fns[1] = fn
 
-	cache.Start()
-
-	cache.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[string, string]))
-	cache.stopCh = make(chan struct{})
-	cache.stopped = true
-
-	go cache.Start()
-	go cache.Start() // should be no-op
-
-	assert.Eventually(t, func() bool {
-		cache.stopMu.Lock()
-		defer cache.stopMu.Unlock()
-		return !cache.stopped
-	}, time.Second, time.Millisecond*100)
-
-	assert.NotPanics(t, cache.Stop)
-
+	for cn, fn := range cc {
+		t.Run(cn, fn)
+	}
 }
 
 func Test_Cache_Stop(t *testing.T) {

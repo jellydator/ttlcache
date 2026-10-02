@@ -60,9 +60,10 @@ type Cache[K comparable, V any] struct {
 		}
 	}
 
-	stopMu  sync.Mutex
-	stopCh  chan struct{}
-	stopped bool
+	stopMu        sync.Mutex
+	stopCh        chan struct{}
+	stopRequested bool
+	stopped       bool
 
 	options options[K, V]
 }
@@ -679,7 +680,7 @@ func (c *Cache[K, V]) IsStarted() bool {
 // It blocks until Stop is called.
 func (c *Cache[K, V]) Start() {
 	c.stopMu.Lock()
-	if !c.stopped {
+	if c.stopRequested || !c.stopped {
 		c.stopMu.Unlock()
 		return
 	}
@@ -742,6 +743,8 @@ func (c *Cache[K, V]) Start() {
 func (c *Cache[K, V]) Stop() {
 	c.stopMu.Lock()
 	defer c.stopMu.Unlock()
+
+	c.stopRequested = true
 
 	if c.stopped {
 		return
