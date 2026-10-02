@@ -864,6 +864,79 @@ func Test_Cache_GetOrSetFunc(t *testing.T) {
 	assert.False(t, retrieved)
 }
 
+func Test_Cache_GetOrTrySetFunc(t *testing.T) {
+	cache := prepCache(0, time.Hour)
+
+	// 1. Successful insertion when key is not found
+	item, retrieved := cache.GetOrTrySetFunc("test", func() (string, bool) {
+		return "1", false
+	}, WithTTL[string, string](time.Minute))
+	require.NotNil(t, item)
+	assert.Equal(t, "1", item.Value())
+	assert.Same(t, item, cache.items.values["test"].Value)
+	assert.False(t, retrieved)
+
+	// 2. Retrieval of existing unexpired item without executing fn
+	fnCalled := false
+	item, retrieved = cache.GetOrTrySetFunc("test", func() (string, bool) {
+		fnCalled = true
+		return "2", false
+	}, WithTTL[string, string](time.Minute))
+	require.NotNil(t, item)
+	assert.Equal(t, "1", item.Value())
+	assert.Same(t, item, cache.items.values["test"].Value)
+	assert.True(t, retrieved)
+	assert.False(t, fnCalled)
+
+	// 3. Cancelled insertion when key is not found
+	cancelCalls := 0
+	item, retrieved = cache.GetOrTrySetFunc("test_cancel", func() (string, bool) {
+		cancelCalls++
+		return "", true
+	}, WithTTL[string, string](time.Minute))
+	assert.Nil(t, item)
+	assert.False(t, retrieved)
+	assert.Equal(t, 1, cancelCalls)
+	assert.False(t, cache.Has("test_cancel"))
+	assert.Nil(t, cache.items.values["test_cancel"])
+
+	// 4. Subsequent call re-executes fn after previous cancellation
+	item, retrieved = cache.GetOrTrySetFunc("test_cancel", func() (string, bool) {
+		cancelCalls++
+		return "loaded", false
+	}, WithTTL[string, string](time.Minute))
+	require.NotNil(t, item)
+	assert.Equal(t, "loaded", item.Value())
+	assert.Same(t, item, cache.items.values["test_cancel"].Value)
+	assert.False(t, retrieved)
+	assert.Equal(t, 2, cancelCalls)
+
+	// 5. Expired item handling: cancellation does not overwrite, subsequent success updates
+	item, retrieved = cache.GetOrTrySetFunc("test_exp", func() (string, bool) {
+		return "exp_1", false
+	}, WithTTL[string, string](time.Microsecond))
+	require.NotNil(t, item)
+	assert.False(t, retrieved)
+
+	time.Sleep(time.Millisecond)
+
+	// 5a. Expired item with cancellation
+	item, retrieved = cache.GetOrTrySetFunc("test_exp", func() (string, bool) {
+		return "", true
+	}, WithTTL[string, string](time.Minute))
+	assert.Nil(t, item)
+	assert.False(t, retrieved)
+
+	// 5b. Expired item with success updates the item
+	item, retrieved = cache.GetOrTrySetFunc("test_exp", func() (string, bool) {
+		return "exp_2", false
+	}, WithTTL[string, string](time.Minute))
+	require.NotNil(t, item)
+	assert.Equal(t, "exp_2", item.Value())
+	assert.Same(t, item, cache.items.values["test_exp"].Value)
+	assert.False(t, retrieved)
+}
+
 func Test_Cache_GetAndDelete(t *testing.T) {
 	cache := prepCache(0, time.Hour, "test1", "test2", "test3")
 	listItem := cache.items.lru.Front()
