@@ -36,6 +36,9 @@ type Cache[K comparable, V any] struct {
 		expQueue expirationQueue[K, V]
 
 		timerCh chan time.Duration
+
+		// in-flight GetOrFetch calls by key (see fetch.go)
+		fetches map[K]*fetchCall[V]
 	}
 	cost uint64
 
@@ -77,6 +80,7 @@ func New[K comparable, V any](opts ...Option[K, V]) *Cache[K, V] {
 	c.items.lru = list.New()
 	c.items.expQueue = newExpirationQueue[K, V]()
 	c.items.timerCh = make(chan time.Duration, 1) // buffer is important
+	c.items.fetches = make(map[K]*fetchCall[V])
 	c.events.insertion.fns = make(map[uint64]func(*Item[K, V]))
 	c.events.update.fns = make(map[uint64]func(*Item[K, V]))
 	c.events.eviction.fns = make(map[uint64]func(EvictionReason, *Item[K, V]))
@@ -360,6 +364,7 @@ func (c *Cache[K, V]) Set(key K, value V, ttl time.Duration) *Item[K, V] {
 	c.items.mu.Lock()
 	defer c.items.mu.Unlock()
 
+	c.fenceFetch(key)
 	return c.set(key, value, ttl)
 }
 
@@ -377,6 +382,7 @@ func (c *Cache[K, V]) Delete(key K) {
 	c.items.mu.Lock()
 	defer c.items.mu.Unlock()
 
+	c.fenceFetch(key)
 	c.delete(key)
 }
 
@@ -427,6 +433,7 @@ func (c *Cache[K, V]) GetOrSetFunc(key K, fn func() V, opts ...Option[K, V]) (*I
 	}
 	setOpts = applyOptions(setOpts, opts...) // used only to update the TTL
 
+	c.fenceFetch(key)
 	item := c.set(key, fn(), setOpts.ttl)
 
 	return item, false
@@ -441,6 +448,7 @@ func (c *Cache[K, V]) GetOrSetFunc(key K, fn func() V, opts ...Option[K, V]) (*I
 // the item is not found.
 func (c *Cache[K, V]) GetAndDelete(key K, opts ...Option[K, V]) (*Item[K, V], bool) {
 	c.items.mu.Lock()
+	c.fenceFetch(key) // deleted whether found or not, like Delete
 
 	elem := c.getWithOpts(key, false, opts...)
 	if elem == nil {
@@ -468,6 +476,7 @@ func (c *Cache[K, V]) GetAndDelete(key K, opts ...Option[K, V]) (*Item[K, V], bo
 // DeleteAll deletes all items from the cache.
 func (c *Cache[K, V]) DeleteAll() {
 	c.items.mu.Lock()
+	c.fenceAllFetches()
 	c.evict(EvictionReasonDeleted)
 	c.items.mu.Unlock()
 }

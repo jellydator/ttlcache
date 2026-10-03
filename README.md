@@ -11,6 +11,7 @@
 - Item expiration and automatic deletion
 - Automatic expiration time extension on each `Get` call
 - `Loader` interface that may be used to load/lazily initialize missing cache items
+- `GetOrFetch`: context-aware loading with concurrent misses collapsed into one fetch, errors, and in-flight fetches fenced by writes (fork addition)
 - Thread safety
 - Event handlers (insertion, update, and eviction)
 - Metrics
@@ -145,6 +146,32 @@ func main() {
 	)
 
 	item := cache.Get("key from file")
+}
+```
+
+When the load hits a database, `GetOrFetch` is the better fit (this fork's
+addition): the fetch gets the caller's context values and returns an error,
+concurrent misses of a key share ONE fetch, and an explicit write to the key
+while a fetch is in flight (`Set`, `Delete`, `DeleteAll`, `GetAndDelete`,
+`GetOrSet`) fences it — its waiters still get the result, but it is not
+cached and later callers fetch afresh, so a value read before an invalidation
+never outlives it. The fetch runs detached from the starting caller's
+cancellation (each caller still stops waiting on its own context), so bound
+it yourself; a panic becomes a `*ttlcache.FetchPanicError`.
+```go
+func main() {
+	cache := ttlcache.New[string, *Org]()
+
+	org, err := cache.GetOrFetch(ctx, orgID, time.Minute,
+		func(ctx context.Context, id string) (*Org, error) {
+			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			return db.GetOrg(ctx, id)
+		},
+	)
+
+	// after a write: drops the entry AND fences a fetch in flight
+	cache.Delete(orgID)
 }
 ```
 
