@@ -59,7 +59,7 @@ func waitCached(t *testing.T, c *Cache[string, string], key string) string {
 }
 
 func Test_Cache_GetOrFetch_MissFetchesAndCaches(t *testing.T) {
-	c := New[string, string](WithTTL[string, string](time.Hour))
+	c := New(WithTTL[string, string](time.Hour))
 	var calls atomic.Int32
 	fetch := func(_ context.Context, key string) (string, error) {
 		calls.Add(1)
@@ -86,7 +86,7 @@ func Test_Cache_GetOrFetch_MissFetchesAndCaches(t *testing.T) {
 }
 
 func Test_Cache_GetOrFetch_DefaultTTL(t *testing.T) {
-	c := New[string, string](WithTTL[string, string](time.Hour))
+	c := New(WithTTL[string, string](time.Hour))
 	_, err := c.GetOrFetch(context.Background(), "k", DefaultTTL, func(context.Context, string) (string, error) {
 		return "v", nil
 	})
