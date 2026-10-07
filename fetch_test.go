@@ -44,7 +44,7 @@ func cancelledCtx() context.Context {
 // waitCached polls until key holds a value (the fetch goroutine caches it
 // just before releasing its waiters, so a caller that left early has no
 // other signal).
-func waitCached(t *testing.T, c *Cache[string, string], key string) string {
+func waitCached[K comparable](t *testing.T, c *Cache[K, string], key K) string {
 	t.Helper()
 	var got string
 	require.Eventually(t, func() bool {

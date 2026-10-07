@@ -81,7 +81,7 @@ audit-fix: ## Attempt to fix vulnerable dependencies automatically
 # The threshold was set just above the repo's worst score when the gate
 # was introduced — treat it as a RATCHET: lower it as the worst functions
 # gain tests or shed complexity; never raise it.
-CRAP_THRESHOLD ?= 15
+CRAP_THRESHOLD ?= 13
 # Rows shown in the report table (worst first). Display-only: the
 # threshold gate below still scans EVERY row.
 CRAP_MAX_ROWS ?= 25

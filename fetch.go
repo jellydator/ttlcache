@@ -2,6 +2,7 @@ package ttlcache
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -20,21 +21,32 @@ import (
 type FetchFunc[K comparable, V any] func(ctx context.Context, key K) (V, error)
 
 // FetchPanicError is what every caller waiting on a fetch gets when its
-// FetchFunc panicked.
+// FetchFunc (or FetchManyFunc) panicked.
 type FetchPanicError struct {
-	Key   any // the key being fetched
-	Value any // what the FetchFunc panicked with
+	Key   any  // the key being fetched; for a FetchManyFunc, the []K of keys
+	Value any  // what the fetch panicked with
+	many  bool // a FetchManyFunc panicked: Key holds its keys
 }
 
 func (e *FetchPanicError) Error() string {
+	if e.many {
+		return fmt.Sprintf("ttlcache: fetch of keys %v panicked: %v", e.Key, e.Value)
+	}
 	return fmt.Sprintf("ttlcache: fetch of key %v panicked: %v", e.Key, e.Value)
 }
 
-// fetchCall is one in-flight fetch, shared by every caller that missed its
-// key while it ran.
+// ErrNotFound is what GetOrFetch returns when it joined a GetOrFetchMany
+// fetch in flight that did not find its key: a FetchFunc always answers with
+// a value or an error, a FetchManyFunc leaves out the keys it did not find.
+var ErrNotFound = errors.New("ttlcache: the fetch in flight did not find the key")
+
+// fetchCall is one key's in-flight fetch, shared by every caller that missed
+// the key while it ran. A GetOrFetchMany fetch makes one per key, all closing
+// the same done channel.
 type fetchCall[V any] struct {
-	done  chan struct{} // closed once val and err are set
+	done  chan struct{} // closed once val, found and err are set
 	val   V
+	found bool // val holds the key's value (always, for a FetchFunc that succeeded)
 	err   error
 	stale bool // fenced by an explicit write: do not cache val (guarded by items.mu)
 }
@@ -57,6 +69,8 @@ type fetchCall[V any] struct {
 //     value read before an invalidation cannot outlive it. Expiry and
 //     capacity evictions do not fence.
 //   - A panicking fetch becomes a *FetchPanicError for every waiter.
+//   - A key in flight on a GetOrFetchMany is joined like any other; if that
+//     fetch did not find it, GetOrFetch returns ErrNotFound.
 //
 // Hits and misses count as in Get, and a hit touches the item unless
 // touch-on-hit is disabled. The cache's Loader is not consulted.
@@ -76,6 +90,9 @@ func (c *Cache[K, V]) GetOrFetch(ctx context.Context, key K, ttl time.Duration, 
 
 	select {
 	case <-call.done:
+		if call.err == nil && !call.found {
+			return call.val, ErrNotFound // joined a GetOrFetchMany that did not find the key
+		}
 		return call.val, call.err
 	case <-ctx.Done():
 		var zero V
@@ -97,7 +114,7 @@ func (c *Cache[K, V]) runFetch(ctx context.Context, key K, ttl time.Duration, fe
 	}
 	c.items.mu.Unlock()
 
-	call.val, call.err = val, err
+	call.val, call.found, call.err = val, err == nil, err
 	close(call.done)
 }
 

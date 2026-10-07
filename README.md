@@ -12,6 +12,7 @@
 - Automatic expiration time extension on each `Get` call
 - `Loader` interface that may be used to load/lazily initialize missing cache items
 - `GetOrFetch`: context-aware loading with concurrent misses collapsed into one fetch, errors, and in-flight fetches fenced by writes (fork addition)
+- `GetOrFetchMany`: the same for a batch of keys — one fetch for the keys nobody is loading, the rest waited on, coalesced and fenced per key (fork addition)
 - Thread safety
 - Event handlers (insertion, update, and eviction)
 - Metrics
@@ -172,6 +173,33 @@ func main() {
 
 	// after a write: drops the entry AND fences a fetch in flight
 	cache.Delete(orgID)
+}
+```
+
+`GetOrFetchMany` does the same for a batch of keys, for loads that read many
+rows at once (`BatchGetItem`, `WHERE id IN (…)`). Coalescing stays per key: the
+keys some fetch is already loading — a `GetOrFetch` or another batch — are
+waited on, and the other misses go out together in ONE call of the fetch. So
+while A's fetch of 1, 2, 3 is in flight, B asking 2, 3, 4 fetches only 4, and
+C asking 3, 2, 1 fetches nothing: two loads, each key loaded once. The fetch
+returns the values it found by key; a key it leaves out is not found — left
+out of the result and not cached (a `GetOrFetch` that joined such a key gets
+`ttlcache.ErrNotFound`). Fencing is per key as well: a write to one key during
+the fetch keeps that key's value out of the cache and the others in. An error
+(or panic) goes to every caller waiting on any key of that fetch, and nothing
+of it is cached; a caller gets no values and the error of the first of its
+keys, in the order asked, whose fetch failed.
+```go
+func main() {
+	cache := ttlcache.New[string, *Org]()
+
+	orgs, err := cache.GetOrFetchMany(ctx, orgIDs, time.Minute,
+		func(ctx context.Context, ids []string) (map[string]*Org, error) {
+			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			return db.GetOrgs(ctx, ids) // the ids it does not find, it leaves out
+		},
+	)
 }
 ```
 
