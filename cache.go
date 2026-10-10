@@ -448,6 +448,39 @@ func (c *Cache[K, V]) GetOrSetFunc(key K, fn func() V, opts ...Option[K, V]) (*I
 	return item, false
 }
 
+// GetOrTrySetFunc retrieves an item from the cache by the provided key.
+// If the element is not found, it is created by executing the fn function
+// with the provided options and then returned. If fn returns true as the cancel
+// value, the operation is cancelled, the item is not stored in the cache, and
+// nil is returned.
+// The bool return value is true if the item was found, false if created or
+// cancelled during the execution of the method.
+// If the loader is non-nil (i.e., used as an option or specified when
+// creating the cache instance), its execution is skipped.
+func (c *Cache[K, V]) GetOrTrySetFunc(key K, fn func() (V, bool), opts ...Option[K, V]) (*Item[K, V], bool) {
+	c.items.mu.Lock()
+	defer c.items.mu.Unlock()
+
+	elem := c.getWithOpts(key, false, opts...)
+	if elem != nil {
+		return elem, true
+	}
+
+	value, cancel := fn()
+	if cancel {
+		return nil, false
+	}
+
+	setOpts := options[K, V]{
+		ttl: c.options.ttl,
+	}
+	setOpts = applyOptions(setOpts, opts...) // used only to update the TTL
+
+	item := c.set(key, value, setOpts.ttl)
+
+	return item, false
+}
+
 // GetAndDelete retrieves an item from the cache by the provided key and
 // then deletes it.
 // The bool return value is true if the item was found before
