@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
@@ -887,6 +888,24 @@ func (l LoaderFunc[K, V]) Load(c *Cache[K, V], key K) *Item[K, V] {
 	return l(c, key)
 }
 
+// An entry is retained only while calls using its token are in flight.
+type suppressedLoaderFlight struct {
+	users int
+}
+
+type suppressedLoaderKey struct {
+	group    *singleflight.Group
+	key      any
+	itemType any
+}
+
+var suppressedLoaderFlights = struct {
+	sync.Mutex
+	entries map[suppressedLoaderKey]*suppressedLoaderFlight
+}{
+	entries: make(map[suppressedLoaderKey]*suppressedLoaderFlight),
+}
+
 // SuppressedLoader wraps another Loader and suppresses duplicate
 // calls to its Load method.
 type SuppressedLoader[K comparable, V any] struct {
@@ -914,16 +933,41 @@ func NewSuppressedLoader[K comparable, V any](loader Loader[K, V], group *single
 // It also ensures that only one execution of the wrapped Loader's Load
 // method is in-flight for a given key at a time.
 func (l *SuppressedLoader[K, V]) Load(c *Cache[K, V], key K) *Item[K, V] {
-	// there should be a better/generic way to create a
-	// singleflight Group's key. It's possible that a generic
-	// singleflight.Group will be introduced with/in go1.19+
-	strKey := fmt.Sprint(key)
+	group := l.group
+	var strKey string
+	// Keys that cannot equal themselves must not share a flight. The runtime
+	// comparability check also handles interface keys containing slices or maps.
+	if !reflect.ValueOf(&key).Elem().Comparable() || key != key {
+		group = &singleflight.Group{}
+	} else {
+		lookup := suppressedLoaderKey{l.group, key, (*Item[K, V])(nil)}
+		suppressedLoaderFlights.Lock()
+		flight := suppressedLoaderFlights.entries[lookup]
+		if flight == nil {
+			flight = &suppressedLoaderFlight{}
+			suppressedLoaderFlights.entries[lookup] = flight
+		}
+		flight.users++
+		suppressedLoaderFlights.Unlock()
+		defer func() {
+			suppressedLoaderFlights.Lock()
+			flight.users--
+			if flight.users == 0 {
+				delete(suppressedLoaderFlights.entries, lookup)
+			}
+			suppressedLoaderFlights.Unlock()
+		}()
+
+		// The shared registry preserves equal-key suppression across loaders using
+		// the same group, without conflating keys that have identical display text.
+		strKey = fmt.Sprintf("%p", flight)
+	}
 
 	// the error can be discarded since the singleflight.Group
 	// itself does not return any of its errors, it returns
 	// the error that we return ourselves in the func below, which
 	// is also nil
-	res, _, _ := l.group.Do(strKey, func() (interface{}, error) {
+	res, _, _ := group.Do(strKey, func() (interface{}, error) {
 		item := l.loader.Load(c, key)
 		if item == nil {
 			return nil, nil
