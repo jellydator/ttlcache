@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -834,35 +835,149 @@ func Test_Cache_GetOrSet(t *testing.T) {
 }
 
 func Test_Cache_GetOrSetFunc(t *testing.T) {
-	cache := prepCache(0, time.Hour)
-	item, retrieved := cache.GetOrSetFunc("test", func() string {
-		return "1"
-	}, WithTTL[string, string](time.Minute))
-	require.NotNil(t, item)
-	assert.Same(t, item, cache.items.values["test"].Value)
-	assert.False(t, retrieved)
+	cc := map[string]struct {
+		Run func(t *testing.T)
+	}{
+		"GetOrSetFunc creates missing items and retrieves existing ones": {
+			Run: func(t *testing.T) {
+				cache := prepCache(0, time.Hour)
+				item, retrieved := cache.GetOrSetFunc("test", func() string {
+					return "1"
+				}, WithTTL[string, string](time.Minute))
+				require.NotNil(t, item)
+				assert.Same(t, item, cache.items.values["test"].Value)
+				assert.False(t, retrieved)
 
-	item, retrieved = cache.GetOrSetFunc("test", func() string {
-		return "1"
-	}, WithTTL[string, string](time.Minute))
-	require.NotNil(t, item)
-	assert.Same(t, item, cache.items.values["test"].Value)
-	assert.True(t, retrieved)
+				item, retrieved = cache.GetOrSetFunc("test", func() string {
+					return "1"
+				}, WithTTL[string, string](time.Minute))
+				require.NotNil(t, item)
+				assert.Same(t, item, cache.items.values["test"].Value)
+				assert.True(t, retrieved)
 
-	item, retrieved = cache.GetOrSetFunc("test2", func() string {
-		return "1"
-	}, WithTTL[string, string](time.Microsecond))
-	require.NotNil(t, item)
-	assert.Same(t, item, cache.items.values["test2"].Value)
-	assert.False(t, retrieved)
+				item, retrieved = cache.GetOrSetFunc("test2", func() string {
+					return "1"
+				}, WithTTL[string, string](time.Microsecond))
+				require.NotNil(t, item)
+				assert.Same(t, item, cache.items.values["test2"].Value)
+				assert.False(t, retrieved)
 
-	time.Sleep(time.Millisecond)
-	item, retrieved = cache.GetOrSetFunc("test2", func() string {
-		return "2"
-	}, WithTTL[string, string](time.Minute))
-	require.NotNil(t, item)
-	assert.Same(t, item, cache.items.values["test2"].Value)
-	assert.False(t, retrieved)
+				time.Sleep(time.Millisecond)
+				item, retrieved = cache.GetOrSetFunc("test2", func() string {
+					return "2"
+				}, WithTTL[string, string](time.Minute))
+				require.NotNil(t, item)
+				assert.Same(t, item, cache.items.values["test2"].Value)
+				assert.False(t, retrieved)
+			},
+		},
+		"GetOrSetFunc with a value function that uses the same cache": {
+			Run: func(t *testing.T) {
+				cache := New[string, string]()
+				cache.Set("existing", "from cache", NoTTL)
+
+				done := make(chan *Item[string, string], 1)
+				go func() {
+					item, _ := cache.GetOrSetFunc("new", func() string {
+						// reading and writing the same cache from the value
+						// function must not deadlock
+						cache.Set("other", "x", NoTTL)
+						return cache.Get("existing").Value()
+					})
+					done <- item
+				}()
+
+				select {
+				case item := <-done:
+					require.NotNil(t, item)
+					assert.Equal(t, "from cache", item.Value())
+					assert.Equal(t, "from cache", cache.Get("new").Value())
+				case <-time.After(5 * time.Second):
+					t.Fatal("GetOrSetFunc deadlocked when its value function used the cache")
+				}
+			},
+		},
+		"GetOrSetFunc with concurrent calls for the same key": {
+			Run: func(t *testing.T) {
+				cache := New[string, string]()
+
+				var (
+					calls   atomic.Int32
+					created atomic.Int32
+					release = make(chan struct{})
+					wg      sync.WaitGroup
+				)
+
+				const callers = 20
+				results := make([]*Item[string, string], callers)
+
+				for i := 0; i < callers; i++ {
+					wg.Add(1)
+					go func(i int) {
+						defer wg.Done()
+						item, found := cache.GetOrSetFunc("key", func() string {
+							calls.Add(1)
+							<-release
+							return "value"
+						})
+						if !found {
+							created.Add(1)
+						}
+						results[i] = item
+					}(i)
+				}
+
+				// let every caller reach GetOrSetFunc before the value is ready
+				time.Sleep(50 * time.Millisecond)
+				close(release)
+				wg.Wait()
+
+				assert.Equal(t, int32(1), calls.Load())
+				assert.Equal(t, int32(1), created.Load())
+				for _, item := range results {
+					require.NotNil(t, item)
+					assert.Equal(t, "value", item.Value())
+				}
+			},
+		},
+		"GetOrSetFunc after a value function panicked": {
+			Run: func(t *testing.T) {
+				cache := New[string, string]()
+
+				assert.Panics(t, func() {
+					cache.GetOrSetFunc("key", func() string {
+						panic("boom")
+					})
+				})
+
+				done := make(chan *Item[string, string], 1)
+				go func() {
+					item, _ := cache.GetOrSetFunc("key", func() string {
+						return "ok"
+					})
+					done <- item
+				}()
+
+				select {
+				case item := <-done:
+					require.NotNil(t, item)
+					assert.Equal(t, "ok", item.Value())
+				case <-time.After(5 * time.Second):
+					t.Fatal("GetOrSetFunc hung after an earlier value function panicked")
+				}
+			},
+		},
+	}
+
+	for cn, c := range cc {
+		c := c
+
+		t.Run(cn, func(t *testing.T) {
+			t.Parallel()
+
+			c.Run(t)
+		})
+	}
 }
 
 func Test_Cache_GetAndDelete(t *testing.T) {
