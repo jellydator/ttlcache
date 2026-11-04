@@ -148,3 +148,58 @@ func Test_WithItemCostFunc(t *testing.T) {
 	require.NotNil(t, item.calculateCost)
 	assert.Equal(t, uint64(10), item.calculateCost(CostItem[string, string]{Key: item.key, Value: item.value}))
 }
+
+func Test_WithItemCostFunc_Disable(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	cost := func(item CostItem[string, string]) uint64 {
+		calls++
+		return uint64(len(item.Value))
+	}
+	item := NewItemWithOpts("key", "value", NoTTL,
+		WithItemCostFunc(cost),
+		WithItemCostFunc[string, string](nil),
+	)
+	assert.Zero(t, calls)
+	assert.Zero(t, item.Cost())
+
+	item.update("updated", NoTTL)
+	assert.Zero(t, calls)
+	assert.Zero(t, item.Cost())
+}
+
+func Test_WithMaxCost_DisableCalculator(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	cache := New(
+		WithMaxCost(1, func(item CostItem[string, string]) uint64 {
+			calls++
+			return uint64(len(item.Value))
+		}),
+		WithMaxCost[string, string](1, nil),
+	)
+	cache.Set("key", "value", NoTTL)
+	cache.Set("key", "updated", NoTTL)
+	assert.Zero(t, calls)
+	assert.Equal(t, 1, cache.Len())
+	item := cache.Get("key")
+	require.NotNil(t, item)
+	assert.Equal(t, "updated", item.Value())
+	assert.Zero(t, item.Cost())
+}
+
+func Test_WithItemCostFunc_EnableAfterNil(t *testing.T) {
+	t.Parallel()
+
+	item := NewItemWithOpts("key", "value", NoTTL,
+		WithItemCostFunc[string, string](nil),
+		WithItemCostFunc(func(item CostItem[string, string]) uint64 {
+			return uint64(len(item.Value))
+		}),
+	)
+	assert.Equal(t, uint64(5), item.Cost())
+	item.update("updated", NoTTL)
+	assert.Equal(t, uint64(7), item.Cost())
+}
