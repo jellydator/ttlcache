@@ -940,6 +940,43 @@ func Test_Cache_GetOrSetFunc(t *testing.T) {
 				}
 			},
 		},
+		"GetOrSetFunc keeps a value Set while its value function runs": {
+			Run: func(t *testing.T) {
+				cache := New[string, string]()
+
+				started := make(chan struct{})
+				release := make(chan struct{})
+
+				type result struct {
+					item  *Item[string, string]
+					found bool
+				}
+				done := make(chan result, 1)
+
+				go func() {
+					item, found := cache.GetOrSetFunc("key", func() string {
+						close(started)
+						<-release
+						return "stale"
+					})
+					done <- result{item, found}
+				}()
+
+				<-started
+				cache.Set("key", "newer", NoTTL)
+				close(release)
+
+				select {
+				case res := <-done:
+					require.NotNil(t, res.item)
+					assert.True(t, res.found)
+					assert.Equal(t, "newer", res.item.Value())
+					assert.Equal(t, "newer", cache.Get("key").Value())
+				case <-time.After(5 * time.Second):
+					t.Fatal("GetOrSetFunc did not return")
+				}
+			},
+		},
 		"GetOrSetFunc after a value function panicked": {
 			Run: func(t *testing.T) {
 				cache := New[string, string]()

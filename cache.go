@@ -437,6 +437,8 @@ func (c *Cache[K, V]) GetOrSet(key K, value V, opts ...Option[K, V]) (*Item[K, V
 // The fn function is executed without holding the cache's lock, so it may
 // use the cache itself. Concurrent calls for the same key wait for the
 // running fn instead of executing their own.
+// If the key is written (e.g. by Set) while fn is running, that value is
+// kept, fn's result is discarded and the bool return value is true.
 func (c *Cache[K, V]) GetOrSetFunc(key K, fn func() V, opts ...Option[K, V]) (*Item[K, V], bool) {
 	for {
 		c.items.mu.Lock()
@@ -485,16 +487,25 @@ func (c *Cache[K, V]) GetOrSetFunc(key K, fn func() V, opts ...Option[K, V]) (*I
 	}
 	setOpts = applyOptions(setOpts, opts...) // used only to update the TTL
 
+	var found bool
+
 	item = func() *Item[K, V] {
 		c.items.mu.Lock()
 		defer c.items.mu.Unlock()
 
 		delete(c.items.pending, key)
 
+		// the key was written (e.g. by Set) while fn was running:
+		// keep that newer value instead of overwriting it with ours
+		if elem := c.get(key, false, false); elem != nil {
+			found = true
+			return elem.Value.(*Item[K, V])
+		}
+
 		return c.set(key, value, setOpts.ttl)
 	}()
 
-	return item, false
+	return item, found
 }
 
 // GetAndDelete retrieves an item from the cache by the provided key and
