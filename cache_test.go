@@ -977,6 +977,42 @@ func Test_Cache_GetOrSetFunc(t *testing.T) {
 				}
 			},
 		},
+		"GetOrSetFunc nested for the same key after the value function Set it": {
+			Run: func(t *testing.T) {
+				cache := New[string, string]()
+
+				type result struct {
+					item  *Item[string, string]
+					found bool
+				}
+				done := make(chan result, 1)
+
+				go func() {
+					item, found := cache.GetOrSetFunc("key", func() string {
+						cache.Set("key", "inner", NoTTL)
+
+						// the key exists now, so this must return it
+						// instead of waiting for the outer call
+						inner, _ := cache.GetOrSetFunc("key", func() string {
+							return "nested"
+						})
+
+						return inner.Value()
+					})
+					done <- result{item, found}
+				}()
+
+				select {
+				case res := <-done:
+					require.NotNil(t, res.item)
+					assert.True(t, res.found)
+					assert.Equal(t, "inner", res.item.Value())
+					assert.Equal(t, "inner", cache.Get("key").Value())
+				case <-time.After(5 * time.Second):
+					t.Fatal("nested GetOrSetFunc waited for its own outer call")
+				}
+			},
+		},
 		"GetOrSetFunc after a value function panicked": {
 			Run: func(t *testing.T) {
 				cache := New[string, string]()

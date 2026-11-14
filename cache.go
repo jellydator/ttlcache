@@ -439,12 +439,19 @@ func (c *Cache[K, V]) GetOrSet(key K, value V, opts ...Option[K, V]) (*Item[K, V
 // running fn instead of executing their own.
 // If the key is written (e.g. by Set) while fn is running, that value is
 // kept, fn's result is discarded and the bool return value is true.
+// Calls for the same key made while fn is running return such a value
+// right away instead of waiting.
+// fn must not call GetOrSetFunc (or GetOrSet) for its own key unless it
+// has written that key first: the nested call would wait for fn itself.
 func (c *Cache[K, V]) GetOrSetFunc(key K, fn func() V, opts ...Option[K, V]) (*Item[K, V], bool) {
 	for {
 		c.items.mu.Lock()
 
 		wait, ok := c.items.pending[key]
-		if !ok {
+		if !ok || c.get(key, false, false) != nil {
+			// nothing is being created, or the key was already
+			// written (e.g. by Set) while fn is running: no need
+			// to wait for fn
 			break
 		}
 
