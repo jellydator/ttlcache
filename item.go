@@ -10,7 +10,7 @@ const (
 	NoTTL time.Duration = -1
 
 	// PreviousOrDefaultTTL indicates that existing TTL of item should be used
-	// default TTL will be used as fallback if item doesn't exist
+	// default TTL will be used as fallback if item doesn't exist or is expired
 	PreviousOrDefaultTTL time.Duration = -2
 
 	// DefaultTTL indicates that the default TTL value of the cache
