@@ -462,6 +462,38 @@ func Test_Cache_set(t *testing.T) {
 	c.Stop()
 }
 
+func Test_Cache_Set_previousOrDefaultTTL_expired(t *testing.T) {
+	for name, ttl := range map[string]time.Duration{
+		"Default TTL":    time.Hour,
+		"No default TTL": 0,
+	} {
+		ttl := ttl
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			cache := New[string, string](WithTTL[string, string](ttl))
+			cache.Set("key", "old", time.Nanosecond)
+			time.Sleep(50 * time.Millisecond)
+			require.Nil(t, cache.Get("key"))
+
+			// the expired item is still in the cache
+			require.Len(t, cache.items.values, 1)
+
+			item := cache.Set("key", "new", PreviousOrDefaultTTL)
+			assert.Equal(t, ttl, item.TTL())
+			assert.False(t, item.IsExpired())
+
+			item = cache.Get("key")
+			require.NotNil(t, item)
+			assert.Equal(t, "new", item.Value())
+
+			cache.DeleteExpired()
+			assert.True(t, cache.Has("key"))
+		})
+	}
+}
+
 func Test_Cache_get(t *testing.T) {
 	const existingKey, notFoundKey, expiredKey = "existing", "notfound", "expired"
 

@@ -148,6 +148,12 @@ func (c *Cache[K, V]) set(key K, value V, ttl time.Duration) *Item[K, V] {
 		item := elem.Value.(*Item[K, V])
 		oldItemCost := item.cost
 
+		// keeping the previous timestamp of an expired item would make
+		// the new value unreachable
+		if ttl == PreviousOrDefaultTTL && item.isExpiredUnsafe() {
+			ttl = c.options.ttl
+		}
+
 		var oldExpiresAt time.Time
 		if !c.items.expQueue.isEmpty() {
 			oldExpiresAt = c.items.expQueue[0].Value.(*Item[K, V]).expiresAt
